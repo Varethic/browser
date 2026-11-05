@@ -54,6 +54,13 @@ pub const COMPONENT_REGISTRY: &[ComponentEntry] = &[
         notes: "Not started.",
     },
     ComponentEntry {
+        chromium_path: "//sql",
+        name: "SQLite layer + history/bookmarks/download records",
+        rust_crate: Some("varethic-storage"),
+        status: MigrationStatus::InProgress,
+        notes: "rusqlite (bundled). History/bookmarks/downloads records, 4 tests. Sync/FTS not yet implemented.",
+    },
+    ComponentEntry {
         chromium_path: "//mojo",
         name: "Mojo IPC",
         rust_crate: None,

@@ -35,6 +35,7 @@ pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
   <button class="navbtn" id="reload" title="Reload">&#10227;</button>
   <button class="navbtn" id="home" title="Home">&#8962;</button>
   <input id="omnibox" placeholder="Search Google or enter URL" autocomplete="off" spellcheck="false">
+  <button class="navbtn" id="bookmark" title="Bookmark this page">&#9734;</button>
   <button class="navbtn" id="devtools" title="DevTools">&lt;/&gt;</button>
 </div>
 <script>
@@ -44,6 +45,7 @@ pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
   document.getElementById('reload').onclick = () => send({type: 'reload'});
   document.getElementById('home').onclick = () => send({type: 'home'});
   document.getElementById('devtools').onclick = () => send({type: 'devtools'});
+  document.getElementById('bookmark').onclick = () => send({type: 'bookmark'});
   const omni = document.getElementById('omnibox');
   omni.addEventListener('keydown', e => {
     if (e.key === 'Enter') { send({type: 'navigate', input: omni.value}); }

@@ -1,0 +1,13 @@
+[package]
+name = "varethic-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust storage layer (successor path to Chromium //sql + //components): history, bookmarks, downloads via SQLite"
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"

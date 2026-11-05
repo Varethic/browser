@@ -8,6 +8,7 @@ description = "Varethic browser: Rust shell over WebView2 (Windows) with Chromiu
 [dependencies]
 varethic-url = { path = "../varethic_url" }
 varethic-engine-core = { path = "../varethic_engine_core" }
+varethic-storage = { path = "../varethic_storage" }
 tao = "0.37"
 wry = "0.57"
 serde_json = "1"

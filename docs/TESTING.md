@@ -11,8 +11,10 @@ cargo test --workspace
 - `varethic-engine-core`: registry consistency test.
 - `varethic-net`: 3 local tests (local hyper server, scheme rejection,
   timeout) + 1 `#[ignore]`d live-HTTPS test (run manually, passed).
-- Browser binary: built debug and launch-tested; window stays alive and
-  loads WebView2 content (manual verification on Windows 11).
+- `varethic-storage`: 4 unit tests (history upsert/search/clear, bookmarks,
+  downloads, on-disk persistence).
+- Browser binary: built debug and launch-tested; window stays alive,
+  `%LOCALAPPDATA%\Varethic\varethic.db` is created on first run.
 
 ## Manual smoke checklist
 

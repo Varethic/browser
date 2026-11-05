@@ -18,7 +18,8 @@ not integrated · `Migrated` — integrated and verified
 | `//services/network` | Network process | Legacy | — | Depends on //net work. |
 | `//content` | Navigation / lifecycle | Legacy | — | Bootstrapped by WebView2. |
 | `//mojo` | IPC | Legacy | — | Shell uses tao/wry IPC with typed events. |
-| `//storage` | SQLite backends | Legacy | — | Phase 2. |
+| `//storage` | Browser-data SQLite | InProgress | `varethic-storage` | History/bookmarks/downloads records; wired into shell (auto-history, bookmark button, download recording). |
+| `//sql` | `//sql` access layer | InProgress | `varethic-storage` | Via bundled rusqlite; sync/FTS pending. |
 | blink `//third_party/blink` | HTML/CSS/DOM | Legacy | — | Long-term; no start. |
 | V8 `//v8` | JavaScript | Legacy | — | Long-term; no start. |
 | `//gpu` | GPU process | Legacy | — | Via WebView2/D3D11 today. |

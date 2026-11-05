@@ -27,8 +27,10 @@ milestone, PATCH = fixes.
 - [ ] Security: sandbox assessment, permission model, CSP enforcement
 
 ## Phase 4 — Browser features (v0.4.x)
-- [ ] Vertical tabs, workspaces, sidebar, split view
-- [ ] History, bookmarks, downloads UI, profiles, private browsing
+- [ ] Vertical tabs, workspaces, split view
+- [x] Bookmarks capture (☆ button, stored), download handling (save + record),
+      history recording — UI for history/bookmarks/downloads list NOT done
+- [ ] History/bookmarks/downloads UI, profiles, private browsing
 - [ ] Settings UI, default-search configuration
 
 ## Phase 5 — Integration (v0.5.x)

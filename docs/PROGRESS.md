@@ -1,5 +1,24 @@
 # Progress Log
 
+## 2026-11-05 — v0.3.0
+
+Done:
+- New crate `varethic-storage` (rusqlite, bundled): history record/search/
+  recent/clear with visit counting; bookmarks add/list/remove; downloads
+  record/list. 4 unit tests incl. reopen persistence. Integrated into the
+  shell: auto history on page load, "☆" bookmark button, WebView2 download
+  started/completed handlers save to %USERPROFILE%\Downloads and record to
+  the db (`%LOCALAPPDATA%\Varethic\varethic.db`). Launch-tested; db file
+  created. Workspace 0.3.0. //storage + //sql tracked InProgress.
+
+Not done / next:
+- Download manager UI, history/bookmarks UI, search-in-history; profiles and
+  private browsing; vertical tabs/workspaces; varethic-net redirects.
+
+Verification:
+- `cargo test --workspace`: 18 passed (10 url + 3 net + 4 storage + 1 registry).
+- Launch test: window alive; varethic.db created.
+
 ## 2026-11-05 — v0.2.0
 
 Done:

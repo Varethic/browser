@@ -1,10 +1,14 @@
 mod toolbar;
 
+use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
+
 use tao::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
     window::WindowBuilder,
 };
+use varethic_storage::Store;
 use varethic_url::{classify_omnibox_input, OmniboxTarget};
 use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::{Rect, WebView, WebViewBuilder};
@@ -23,6 +27,7 @@ enum UserEvent {
     Reload,
     Home,
     Devtools,
+    Bookmark,
     TitleChanged(u64, String),
     PageLoaded(u64, String),
 }
@@ -87,6 +92,21 @@ fn main() {
         .build(&event_loop)
         .expect("failed to create window");
 
+    // Persistent browser-data store (history, bookmarks, downloads).
+    let data_dir = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("Varethic");
+    let _ = std::fs::create_dir_all(&data_dir);
+    let downloads_dir = std::env::var_os("USERPROFILE")
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("Downloads");
+    let _ = std::fs::create_dir_all(&downloads_dir);
+    let store = Arc::new(Mutex::new(
+        Store::open(&data_dir.join("varethic.db")).expect("failed to open varethic.db"),
+    ));
+
     // Toolbar (browser chrome) child webview.
     let ipc_proxy = proxy.clone();
     let toolbar_view = WebViewBuilder::new()
@@ -113,6 +133,7 @@ fn main() {
                     Some("reload") => Some(UserEvent::Reload),
                     Some("home") => Some(UserEvent::Home),
                     Some("devtools") => Some(UserEvent::Devtools),
+                    Some("bookmark") => Some(UserEvent::Bookmark),
                     _ => None,
                 };
                 if let Some(ev) = ev {
@@ -130,10 +151,13 @@ fn main() {
     let spawn_tab = |window: &tao::window::Window,
                      tab_id: u64,
                      url: &str,
-                     proxy: &tao::event_loop::EventLoopProxy<UserEvent>|
+                     proxy: &tao::event_loop::EventLoopProxy<UserEvent>,
+                     store: Arc<Mutex<Store>>,
+                     downloads_dir: PathBuf|
      -> WebView {
         let title_proxy = proxy.clone();
         let load_proxy = proxy.clone();
+        let dl_completed_store = store.clone();
         WebViewBuilder::new()
             .with_url(url)
             .with_bounds(content_bounds(window))
@@ -143,12 +167,35 @@ fn main() {
             .with_on_page_load_handler(move |_event, url| {
                 let _ = load_proxy.send_event(UserEvent::PageLoaded(tab_id, url));
             })
+            .with_download_started_handler(move |url, path| {
+                // Save downloads into the user's Downloads folder.
+                let filename = url
+                    .rsplit('/')
+                    .next()
+                    .filter(|s| !s.is_empty() && s.contains('.'))
+                    .unwrap_or("download")
+                    .to_string();
+                *path = downloads_dir.join(&filename);
+                true
+            })
+            .with_download_completed_handler(move |url, path, success| {
+                if let (Ok(store), Some(p)) = (dl_completed_store.lock(), path) {
+                    let _ = store.record_download(&url, &p.to_string_lossy(), success);
+                }
+            })
             .build_as_child(window)
             .expect("failed to create tab webview")
     };
 
     // Open the first tab.
-    let first = spawn_tab(&window, next_tab_id, NEW_TAB_URL, &proxy);
+    let first = spawn_tab(
+        &window,
+        next_tab_id,
+        NEW_TAB_URL,
+        &proxy,
+        store.clone(),
+        downloads_dir.clone(),
+    );
     tabs.push(Tab {
         id: next_tab_id,
         title: "New Tab".into(),
@@ -177,7 +224,14 @@ fn main() {
                 UserEvent::NewTab => {
                     let id = next_tab_id;
                     next_tab_id += 1;
-                    let view = spawn_tab(&window, id, NEW_TAB_URL, &proxy);
+                    let view = spawn_tab(
+                        &window,
+                        id,
+                        NEW_TAB_URL,
+                        &proxy,
+                        store.clone(),
+                        downloads_dir.clone(),
+                    );
                     // Hide previous active tab.
                     if let Some(active) = active_tab {
                         if let Some(t) = tabs.iter().find(|t| t.id == active) {
@@ -204,7 +258,14 @@ fn main() {
                             // Always keep at least one tab.
                             let nid = next_tab_id;
                             next_tab_id += 1;
-                            let view = spawn_tab(&window, nid, NEW_TAB_URL, &proxy);
+                            let view = spawn_tab(
+                                &window,
+                                nid,
+                                NEW_TAB_URL,
+                                &proxy,
+                                store.clone(),
+                                downloads_dir.clone(),
+                            );
                             tabs.push(Tab {
                                 id: nid,
                                 title: "New Tab".into(),
@@ -276,6 +337,13 @@ fn main() {
                         t.webview.open_devtools();
                     }
                 }
+                UserEvent::Bookmark => {
+                    if let Some(t) = tabs.iter().find(|t| Some(t.id) == active_tab) {
+                        if let Ok(store) = store.lock() {
+                            let _ = store.add_bookmark(&t.url, &t.title);
+                        }
+                    }
+                }
                 UserEvent::TitleChanged(id, title) => {
                     if let Some(t) = tabs.iter_mut().find(|t| t.id == id) {
                         t.title = title;
@@ -288,8 +356,16 @@ fn main() {
                     sync_toolbar(&toolbar_view, &tabs, active_tab, &url);
                 }
                 UserEvent::PageLoaded(id, url) => {
-                    if let Some(t) = tabs.iter_mut().find(|t| t.id == id) {
-                        t.url = url;
+                    let title = if let Some(t) = tabs.iter_mut().find(|t| t.id == id) {
+                        t.url = url.clone();
+                        t.title.clone()
+                    } else {
+                        String::new()
+                    };
+                    if !url.starts_with("about:") && !url.starts_with("data:") {
+                        if let Ok(store) = store.lock() {
+                            let _ = store.record_visit(&url, &title);
+                        }
                     }
                     let url = tabs
                         .iter()
