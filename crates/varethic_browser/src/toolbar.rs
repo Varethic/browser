@@ -40,6 +40,7 @@ pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
   <button class="navbtn" id="bookmarks" title="Bookmarks">&#9733;</button>
   <button class="navbtn" id="downloads" title="Downloads">&#11015;</button>
   <button class="navbtn" id="private" title="New private tab">&#128377;</button>
+  <button class="navbtn" id="profiles" title="Profiles">&#128100;</button>
   <button class="navbtn" id="settings" title="Settings">&#9881;</button>
   <button class="navbtn" id="devtools" title="DevTools">&lt;/&gt;</button>
 </div>
@@ -56,6 +57,7 @@ pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
   document.getElementById('downloads').onclick = () => send({type: 'open-panel', kind: 'downloads'});
   document.getElementById('private').onclick = () => send({type: 'new-private-tab'});
   document.getElementById('settings').onclick = () => send({type: 'open-panel', kind: 'settings'});
+  document.getElementById('profiles').onclick = () => send({type: 'open-panel', kind: 'profiles'});
   const omni = document.getElementById('omnibox');
   omni.addEventListener('keydown', e => {
     if (e.key === 'Enter') { send({type: 'navigate', input: omni.value}); }

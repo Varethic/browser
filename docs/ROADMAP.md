@@ -31,7 +31,7 @@ milestone, PATCH = fixes.
 - [x] Bookmarks capture (☆ button, stored), download handling (save + record),
       history recording — UI for history/bookmarks/downloads list NOT done
 - [x] History/bookmarks/downloads UI (side panels wired to varethic-storage)
-- [x] Profiles-lite: private browsing (incognito tabs); multiple named profiles NOT done
+- [x] Named profiles (per-profile storage + picker, Default auto-created)
 - [x] Settings UI (default search, Google default via template)
 
 ## Phase 5 — Integration (v0.5.x)

@@ -1,5 +1,13 @@
 # Progress Log
 
+## 2026-11-05 — v0.7.0
+
+Done:
+- Named profiles: registry (profiles.db), per-profile dbs under
+  %LOCALAPPDATA%\Varethic\profiles\<name>\varethic.db; legacy db migrated into
+  Default; Profiles panel (\u{1F464}) to create/switch; switching swaps live
+  storage backend. 34 workspace tests pass; launch-tested.
+
 ## 2026-11-05 — v0.6.0
 
 Done:

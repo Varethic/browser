@@ -103,6 +103,10 @@ impl Store {
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS profiles (
+                name TEXT PRIMARY KEY,
+                created_at INTEGER NOT NULL
             );",
         )?;
         Ok(())
@@ -188,6 +192,33 @@ impl Store {
         Ok(self
             .conn
             .execute("DELETE FROM bookmarks WHERE id = ?1", params![id])?)
+    }
+
+    // ---- profiles ----
+
+    /// Create a profile registry entry (used by the shell to track named profiles).
+    pub fn create_profile(&self, name: &str) -> Result<(), StorageError> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO profiles(name, created_at) VALUES (?1, ?2)",
+            params![name, now_unix()],
+        )?;
+        Ok(())
+    }
+
+    pub fn list_profiles(&self) -> Result<Vec<String>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT name FROM profiles ORDER BY created_at ASC")?;
+        let rows = stmt
+            .query_map([], |r| r.get(0))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn delete_profile(&self, name: &str) -> Result<usize, StorageError> {
+        Ok(self
+            .conn
+            .execute("DELETE FROM profiles WHERE name = ?1", params![name])?)
     }
 
     // ---- settings ----
@@ -286,6 +317,17 @@ mod tests {
         let list = s.list_downloads(10).unwrap();
         assert_eq!(list.len(), 1);
         assert!(list[0].success);
+    }
+
+    #[test]
+    fn profiles_create_list_delete() {
+        let s = Store::open_in_memory().unwrap();
+        s.create_profile("Default").unwrap();
+        s.create_profile("Work").unwrap();
+        s.create_profile("Default").unwrap(); // idempotent
+        assert_eq!(s.list_profiles().unwrap(), vec!["Default", "Work"]);
+        s.delete_profile("Work").unwrap();
+        assert_eq!(s.list_profiles().unwrap(), vec!["Default"]);
     }
 
     #[test]

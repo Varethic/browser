@@ -33,6 +33,8 @@ enum UserEvent {
     Goto(String),
     SetSearch(String),
     NewPrivateTab,
+    SetProfile(String),
+    NewProfile(String),
     TitleChanged(u64, String),
     PageLoaded(u64, String),
 }
@@ -43,6 +45,7 @@ enum PanelKind {
     Bookmarks,
     Downloads,
     Settings,
+    Profiles,
 }
 
 struct Tab {
@@ -58,6 +61,13 @@ fn navigate_target(input: &str, search_template: &str) -> String {
         OmniboxTarget::Navigate(u) => u.to_url_string(),
         OmniboxTarget::Search(u) => u,
     }
+}
+
+fn valid_profile_name(n: &str) -> bool {
+    !n.is_empty()
+        && n.len() <= 32
+        && n.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
 fn current_search_template(store: &Arc<Mutex<Store>>) -> String {
@@ -95,6 +105,38 @@ fn esc_html(s: &str) -> String {
         .replace('\'', "&#39;")
 }
 
+fn profiles_panel_html(profiles_body: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+:root {{ color-scheme: dark; }}
+* {{ font-family: 'Segoe UI', sans-serif; margin: 0; }}
+body {{ background: #1b1d22; color: #e6e6e6; }}
+header {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #14151a; }}
+h1 {{ font-size: 14px; }}
+button {{ background: transparent; border: none; color: #ddd; font-size: 16px; cursor: pointer; }}
+.settings {{ padding: 14px; display: flex; flex-direction: column; gap: 8px; }}
+label {{ font-size: 12px; }}
+input {{ height: 30px; background: #14151a; color: #eee; border: 1px solid #3d4049; border-radius: 6px; padding: 0 10px; font-size: 12px; }}
+.save {{ background: #4f8cff; color: #fff; border-radius: 6px; height: 30px; font-size: 12px; }}
+.row {{ padding: 8px 12px; border-bottom: 1px solid #2a2c33; cursor: pointer; }}
+.row:hover {{ background: #23252d; }}
+.t {{ font-size: 12px; }}
+.u {{ font-size: 11px; color: #9aa0ae; }}
+</style></head><body>
+<header><h1>Profiles</h1><button onclick="window.ipc.postMessage(JSON.stringify({{type:'close-panel'}}))">&times;</button></header>
+{profiles_body}
+<script>
+function setProfile(name) {{ window.ipc.postMessage(JSON.stringify({{type:'set-profile', name: name}})); }}
+function newProfile() {{
+  const v = document.getElementById('newprofile').value.trim();
+  if (v) window.ipc.postMessage(JSON.stringify({{type:'new-profile', name: v}}));
+}}
+</script>
+</body></html>"#,
+        profiles_body = profiles_body
+    )
+}
+
 fn settings_panel_html(settings_body: &str) -> String {
     format!(
         r#"<!DOCTYPE html><html><head><meta charset="utf-8"><style>
@@ -124,7 +166,7 @@ function saveSearch() {{
     )
 }
 
-fn panel_html(kind: PanelKind, store: &Arc<Mutex<Store>>) -> String {
+fn panel_html(kind: PanelKind, store: &Arc<Mutex<Store>>, registry: &Arc<Mutex<Store>>) -> String {
     let (heading, rows) = match kind {
         PanelKind::History => {
             let items = store
@@ -163,6 +205,40 @@ fn panel_html(kind: PanelKind, store: &Arc<Mutex<Store>>) -> String {
                 })
                 .collect();
             ("Bookmarks", rows)
+        }
+        PanelKind::Profiles => {
+            let (profiles, current) = registry
+                .lock()
+                .map(|r| {
+                    (
+                        r.list_profiles().unwrap_or_default(),
+                        r.get_setting("current_profile")
+                            .ok()
+                            .flatten()
+                            .unwrap_or_else(|| "Default".into()),
+                    )
+                })
+                .unwrap_or_else(|_| (vec!["Default".into()], "Default".into()));
+            let list_rows: String = profiles
+                .iter()
+                .map(|p| {
+                    let name_js = serde_json::to_string(p).unwrap_or_else(|_| "\"\"".into());
+                    let marker = if *p == current { " \u{25CF}" } else { "" };
+                    format!(
+                        "<div class='row' onclick='setProfile({name_js})'><div class='t'>{}{}</div><div class='u'>Click to switch</div></div>",
+                        esc_html(p),
+                        marker
+                    )
+                })
+                .collect();
+            let body = format!(
+                "<div class='settings'><label for='newprofile'>Create profile</label>
+                 <input id='newprofile' type='text' placeholder='e.g. Work' maxlength='32' spellcheck='false'>
+                 <button class='save' onclick='newProfile()'>Create & switch</button>
+                 </div>
+                 <div class='rows'>{list_rows}</div>"
+            );
+            return profiles_panel_html(&body);
         }
         PanelKind::Settings => {
             let current = store
@@ -284,9 +360,36 @@ fn main() {
         .unwrap_or_else(|| PathBuf::from("."))
         .join("Downloads");
     let _ = std::fs::create_dir_all(&downloads_dir);
-    let store = Arc::new(Mutex::new(
-        Store::open(&data_dir.join("varethic.db")).expect("failed to open varethic.db"),
+    // Profile registry (tracks named profiles + current selection).
+    let registry = Arc::new(Mutex::new(
+        Store::open(&data_dir.join("profiles.db")).expect("failed to open profiles.db"),
     ));
+    if let Ok(r) = registry.lock() {
+        let _ = r.create_profile("Default");
+    }
+    let current_profile = registry
+        .lock()
+        .ok()
+        .and_then(|r| r.get_setting("current_profile").ok().flatten())
+        .unwrap_or_else(|| "Default".to_string());
+    let profile_db_path_init =
+        |name: &str| -> PathBuf { data_dir.join("profiles").join(name).join("varethic.db") };
+    let legacy_db = data_dir.join("varethic.db");
+    let default_db = profile_db_path_init(&current_profile);
+    if legacy_db.exists() && !default_db.exists() {
+        if let Some(parent) = default_db.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::copy(&legacy_db, &default_db);
+    }
+    let store = Arc::new(Mutex::new(
+        Store::open(&default_db).expect("failed to open profile varethic.db"),
+    ));
+
+    let profile_base = data_dir.clone();
+    let profile_db_path = move |name: &str| -> PathBuf {
+        profile_base.join("profiles").join(name).join("varethic.db")
+    };
 
     // Toolbar (browser chrome) child webview.
     let ipc_proxy = proxy.clone();
@@ -324,6 +427,7 @@ fn main() {
                             "bookmarks" => Some(PanelKind::Bookmarks),
                             "downloads" => Some(PanelKind::Downloads),
                             "settings" => Some(PanelKind::Settings),
+                            "profiles" => Some(PanelKind::Profiles),
                             _ => None,
                         })
                         .map(UserEvent::OpenPanel),
@@ -588,10 +692,29 @@ fn main() {
                         panel = None; // close settings panel on save
                     }
                 }
+                UserEvent::SetProfile(name) | UserEvent::NewProfile(name) => {
+                    if !valid_profile_name(&name) {
+                        return; // ignore invalid names
+                    }
+                    if let Ok(r) = registry.lock() {
+                        let _ = r.create_profile(&name);
+                        let _ = r.set_setting("current_profile", &name);
+                    }
+                    let path = profile_db_path(&name);
+                    if let Some(parent) = path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                    if let Ok(new_store) = Store::open(&path) {
+                        if let Ok(mut guard) = store.lock() {
+                            *guard = new_store;
+                        }
+                    }
+                    panel = None; // close profiles panel on switch
+                }
                 UserEvent::OpenPanel(kind) => {
                     // Replace any open panel.
                     panel = None;
-                    let html = panel_html(kind, &store);
+                    let html = panel_html(kind, &store, &registry);
                     let panel_proxy = proxy.clone();
                     let bounds = panel_bounds(&window);
                     panel = WebViewBuilder::new()
@@ -605,6 +728,14 @@ fn main() {
                                         .get("value")
                                         .and_then(|v| v.as_str())
                                         .map(|v| UserEvent::SetSearch(v.to_string())),
+                                    Some("set-profile") => msg
+                                        .get("name")
+                                        .and_then(|v| v.as_str())
+                                        .map(|v| UserEvent::SetProfile(v.to_string())),
+                                    Some("new-profile") => msg
+                                        .get("name")
+                                        .and_then(|v| v.as_str())
+                                        .map(|v| UserEvent::NewProfile(v.to_string())),
                                     Some("goto") => msg
                                         .get("url")
                                         .and_then(|u| u.as_str())

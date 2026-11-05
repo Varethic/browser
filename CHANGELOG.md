@@ -3,6 +3,18 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.7.0] - 2026-11-05
+
+### Added
+- Named profiles: profile registry db (`profiles.db`) with `Default` auto-created;
+  each profile gets its own browser-data dir (`%LOCALAPPDATA%\\Varethic\\profiles\\<name>\\varethic.db`);
+  legacy pre-profiles `varethic.db` is migrated into the Default profile on first run.
+- Profiles panel (\u{1F464} button): create + switch profiles; name validation
+  (alnum/-/_, max 32); switching swaps the live storage backend.
+  NOTE: switching does not migrate WebView2's in-memory state or per-profile tab sessions.
+- `varethic-storage`: `profiles` table + `create_profile`/`list_profiles`/`delete_profile`
+  (+1 test). Workspace: 34 tests pass; launch-tested.
+
 ## [0.6.0] - 2026-11-05
 
 ### Added
