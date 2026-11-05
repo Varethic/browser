@@ -1,5 +1,22 @@
 # Progress Log
 
+## 2026-11-05 — v0.4.0
+
+Done:
+- varethic-net: redirect following (301/302/303/307/308, max 10 hops,
+  ERR_TOO_MANY_REDIRECTS analogue), absolute/relative Location resolution.
+  6 local tests pass.
+- Shell: history/bookmarks/downloads side panels (child webview) opened from
+  new toolbar buttons; rows come from varethic-storage; clicking a
+  history/bookmark navigates the active tab; panel closes on \u00D7 or goto;
+  resize keeps panel bounds. Launch-tested, window alive.
+- Pushed v0.1.0–v0.3.0 commits to origin/main (user authorized), committed
+  v0.4.0.
+
+Verification:
+- `cargo test --workspace`: all pass (url 10, net 6, storage 4, registry 1).
+- Launch test: window alive after 10 s.
+
 ## 2026-11-05 — v0.3.0
 
 Done:

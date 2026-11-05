@@ -26,6 +26,8 @@ pub enum NetError {
     Http(String),
     #[error("timeout after {0:?}")]
     Timeout(Duration),
+    #[error("too many redirects")]
+    TooManyRedirects,
 }
 
 #[derive(Debug, Clone)]
@@ -50,8 +52,20 @@ fn build_https_connector(
         .build()
 }
 
-/// Perform an HTTP(S) GET for `url` with a timeout.
+/// Perform an HTTP(S) GET for `url` with a timeout, following redirects
+/// (301/302/303/307/308) up to 10 hops.
 pub async fn get(url: &Url, timeout: Duration) -> Result<Response, NetError> {
+    get_with_redirects(url, timeout, 10).await
+}
+
+/// Like [`get`], with an explicit redirect limit. Errors with
+/// [`NetError::TooManyRedirects`] past the limit (mirrors Chromium's
+/// net::ERR_TOO_MANY_REDIRECTS).
+pub async fn get_with_redirects(
+    url: &Url,
+    timeout: Duration,
+    max_redirects: u8,
+) -> Result<Response, NetError> {
     match url.scheme.as_str() {
         "http" | "https" => {}
         other => return Err(NetError::UnsupportedScheme(other.to_string())),
@@ -60,41 +74,91 @@ pub async fn get(url: &Url, timeout: Duration) -> Result<Response, NetError> {
     let client: Client<_, Empty<Bytes>> =
         Client::builder(TokioExecutor::new()).build(build_https_connector());
 
-    let target = url.to_url_string();
-    let req = http::Request::builder()
-        .method(http::Method::GET)
-        .uri(&target)
-        .header(
-            http::header::USER_AGENT,
-            concat!("Varethic/", env!("CARGO_PKG_VERSION")),
-        )
-        .body(Empty::<Bytes>::new())
-        .map_err(|e| NetError::Http(e.to_string()))?;
+    let mut current = url.to_url_string();
+    let mut hops = 0u8;
 
-    let fut = client.request(req);
-    let resp = tokio::time::timeout(timeout, fut)
-        .await
-        .map_err(|_| NetError::Timeout(timeout))?
-        .map_err(|e| NetError::Http(e.to_string()))?;
+    loop {
+        let req = http::Request::builder()
+            .method(http::Method::GET)
+            .uri(&current)
+            .header(
+                http::header::USER_AGENT,
+                concat!("Varethic/", env!("CARGO_PKG_VERSION")),
+            )
+            .body(Empty::<Bytes>::new())
+            .map_err(|e| NetError::Http(e.to_string()))?;
 
-    let status = resp.status().as_u16();
-    let headers = resp
-        .headers()
-        .iter()
-        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
-        .collect();
-    let body = resp
-        .into_body()
-        .collect()
-        .await
-        .map_err(|e| NetError::Http(e.to_string()))?
-        .to_bytes();
+        let fut = client.request(req);
+        let resp = tokio::time::timeout(timeout, fut)
+            .await
+            .map_err(|_| NetError::Timeout(timeout))?
+            .map_err(|e| NetError::Http(e.to_string()))?;
 
-    Ok(Response {
-        status,
-        headers,
-        body,
-    })
+        let status = resp.status().as_u16();
+        let is_redirect = matches!(status, 301 | 302 | 303 | 307 | 308);
+        let location = resp
+            .headers()
+            .get(http::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        if is_redirect {
+            let loc = location.ok_or_else(|| {
+                NetError::Http("redirect response without Location header".into())
+            })?;
+            if hops >= max_redirects {
+                return Err(NetError::TooManyRedirects);
+            }
+            hops += 1;
+            current = resolve_redirect(&current, &loc)?;
+            continue;
+        }
+
+        let headers = resp
+            .headers()
+            .iter()
+            .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+            .collect();
+        let body = resp
+            .into_body()
+            .collect()
+            .await
+            .map_err(|e| NetError::Http(e.to_string()))?
+            .to_bytes();
+
+        return Ok(Response {
+            status,
+            headers,
+            body,
+        });
+    }
+}
+
+/// Resolve a (possibly relative) redirect Location header against the URL
+/// that produced it. Handles absolute http(s) URLs, absolute-path, and
+/// relative-path locations.
+fn resolve_redirect(current: &str, location: &str) -> Result<String, NetError> {
+    if location.starts_with("http://") || location.starts_with("https://") {
+        return Ok(location.to_string());
+    }
+    let scheme_end = current
+        .find("://")
+        .map(|i| i + 3)
+        .ok_or_else(|| NetError::Http("malformed base URL".into()))?;
+    let host_start = scheme_end;
+    let host_end = current[host_start..]
+        .find('/')
+        .map(|i| host_start + i)
+        .unwrap_or(current.len());
+    let origin = &current[..host_end];
+    if location.starts_with('/') {
+        return Ok(format!("{}{}", origin, location));
+    }
+    let path_dir = match current.rfind('/') {
+        Some(i) if i >= host_end => &current[..i],
+        _ => origin,
+    };
+    Ok(format!("{}/{}", path_dir, location))
 }
 
 /// Convenience: GET a raw string URL.
@@ -122,14 +186,31 @@ mod tests {
                 let (stream, _) = listener.accept().await.unwrap();
                 let io = TokioIo::new(stream);
                 tokio::spawn(async move {
-                    let svc = service_fn(|_req| async {
-                        Ok::<_, Infallible>(
-                            http::Response::builder()
+                    let svc = service_fn(|req: http::Request<hyper::body::Incoming>| async move {
+                        let path = req.uri().path().to_string();
+                        let resp = match path.as_str() {
+                            "/redirect" => http::Response::builder()
+                                .status(301)
+                                .header("location", "/final")
+                                .body(Full::new(Bytes::new()))
+                                .unwrap(),
+                            "/redirect-loop" => http::Response::builder()
+                                .status(302)
+                                .header("location", "/redirect-loop")
+                                .body(Full::new(Bytes::new()))
+                                .unwrap(),
+                            "/redirect-relative" => http::Response::builder()
+                                .status(302)
+                                .header("location", "dir/final")
+                                .body(Full::new(Bytes::new()))
+                                .unwrap(),
+                            _ => http::Response::builder()
                                 .status(200)
                                 .header("content-type", "text/plain")
                                 .body(Full::new(Bytes::from_static(b"varethic-net-ok")))
                                 .unwrap(),
-                        )
+                        };
+                        Ok::<_, Infallible>(resp)
                     });
                     let _ = hyper::server::conn::http1::Builder::new()
                         .serve_connection(io, svc)
@@ -156,6 +237,32 @@ mod tests {
         let resp = get_str(&url, Duration::from_secs(5)).await.unwrap();
         assert_eq!(resp.status, 200);
         assert_eq!(resp.body_string().unwrap(), "varethic-net-ok");
+    }
+
+    #[tokio::test]
+    async fn follows_absolute_path_redirect() {
+        let addr = spawn_test_server().await;
+        let url = format!("http://{}/redirect", addr);
+        let resp = get_str(&url, Duration::from_secs(5)).await.unwrap();
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body_string().unwrap(), "varethic-net-ok");
+    }
+
+    #[tokio::test]
+    async fn follows_relative_redirect() {
+        let addr = spawn_test_server().await;
+        let url = format!("http://{}/base/redirect-relative", addr);
+        // /base/redirect-relative -> 302 Location: dir/final -> /base/dir/final (served 200 by catch-all)
+        let resp = get_str(&url, Duration::from_secs(5)).await.unwrap();
+        assert_eq!(resp.status, 200);
+    }
+
+    #[tokio::test]
+    async fn too_many_redirects_errors() {
+        let addr = spawn_test_server().await;
+        let url = format!("http://{}/redirect-loop", addr);
+        let err = get_str(&url, Duration::from_secs(5)).await.unwrap_err();
+        assert!(matches!(err, NetError::TooManyRedirects));
     }
 
     #[tokio::test]

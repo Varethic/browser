@@ -12,8 +12,8 @@ milestone, PATCH = fixes.
 - [x] First engine component: varethic-url (successor to //url), unit tested
 
 ## Phase 2 — Engine (v0.2.x)
-- [x] varethic_net (v0.2.0): HTTP/1.1 GET subset (rustls+hyper), tested
-- [ ] varethic_net: redirects, cookies, cache, HTTP/2, download manager
+- [x] varethic_net (v0.4.0): HTTP/1.1 GET + redirect following, tested
+- [ ] varethic_net: cookies, cache, HTTP/2, download manager on top
 - [x] varethic_url: IPv4/IPv6/host-kind + omnibox (10 tests); WHATWG full parity, IDN, origins pending
 - [ ] Download manager on top of varethic_net
 - [ ] Cookie jar in Rust
@@ -30,7 +30,8 @@ milestone, PATCH = fixes.
 - [ ] Vertical tabs, workspaces, split view
 - [x] Bookmarks capture (☆ button, stored), download handling (save + record),
       history recording — UI for history/bookmarks/downloads list NOT done
-- [ ] History/bookmarks/downloads UI, profiles, private browsing
+- [x] History/bookmarks/downloads UI (side panels wired to varethic-storage)
+- [ ] Profiles, private browsing
 - [ ] Settings UI, default-search configuration
 
 ## Phase 5 — Integration (v0.5.x)

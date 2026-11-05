@@ -37,7 +37,7 @@ pub const COMPONENT_REGISTRY: &[ComponentEntry] = &[
         name: "Network stack",
         rust_crate: Some("varethic-net"),
         status: MigrationStatus::InProgress,
-        notes: "HTTP/1.1 GET over HTTP+HTTPS (rustls/webpki-roots), local-server and live-network tested. Redirects/cookies/cache/HTTP2 not yet implemented.",
+        notes: "HTTP/1.1 GET + redirect following (max 10 hops), local-server and live-network tested. Cookies/cache/HTTP2 not yet implemented.",
     },
     ComponentEntry {
         chromium_path: "//content",

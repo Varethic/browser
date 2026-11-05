@@ -10,9 +10,8 @@
   incremental Rust crates instead.
 - **varethic-url is not WHATWG-complete.** No IDN/punycode, no percent-decoding
   normalization, no trailing-dot domain rules beyond basics.
-- **varethic-net is a GET-only subset.** No redirects, cookies, cache, HTTP/2,
-  POST bodies, or connection pooling controls; shell navigation still uses
-  WebView2, not varethic-net.
+- **varethic-net is a GET-only subset.** No cookies, cache, HTTP/2, POST bodies,
+  or pooling controls; shell navigation still uses WebView2, not varethic-net.
 - **Per-tab state limitations.** Tabs each own a webview (good), but tab
   thumbnails, session restore, and hibernation are not implemented.
 - **Toolbar is HTML in a webview** — it inherits WebView2 quirks; keyboard

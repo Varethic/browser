@@ -28,8 +28,18 @@ enum UserEvent {
     Home,
     Devtools,
     Bookmark,
+    OpenPanel(PanelKind),
+    ClosePanel,
+    Goto(String),
     TitleChanged(u64, String),
     PageLoaded(u64, String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PanelKind {
+    History,
+    Bookmarks,
+    Downloads,
 }
 
 struct Tab {
@@ -44,6 +54,118 @@ fn navigate_target(input: &str) -> String {
         OmniboxTarget::Navigate(u) => u.to_url_string(),
         OmniboxTarget::Search(u) => u,
     }
+}
+
+fn panel_bounds(window: &tao::window::Window) -> Rect {
+    let scale = window.scale_factor();
+    let size = window.inner_size();
+    let w = 440.0_f64;
+    Rect {
+        position: LogicalPosition::new(
+            (size.width as f64 / scale) - w,
+            toolbar::TOOLBAR_HEIGHT as f64,
+        )
+        .into(),
+        size: LogicalSize::new(
+            w,
+            (size.height as f64 / scale) - toolbar::TOOLBAR_HEIGHT as f64,
+        )
+        .into(),
+    }
+}
+
+fn esc_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn panel_html(kind: PanelKind, store: &Arc<Mutex<Store>>) -> String {
+    let (heading, rows) = match kind {
+        PanelKind::History => {
+            let items = store
+                .lock()
+                .map(|s| s.recent_history(200))
+                .unwrap_or_else(|_| Ok(vec![]))
+                .unwrap_or_default();
+            let rows: String = items
+                .iter()
+                .map(|e| {
+                    let url_js = serde_json::to_string(&e.url).unwrap_or_else(|_| "\"\"".into());
+                    format!(
+                        "<div class='row' onclick='goto({url_js})'><div class='t'>{}</div><div class='u'>{}</div></div>",
+                        esc_html(if e.title.is_empty() { &e.url } else { &e.title }),
+                        esc_html(&e.url)
+                    )
+                })
+                .collect();
+            ("History", rows)
+        }
+        PanelKind::Bookmarks => {
+            let items = store
+                .lock()
+                .map(|s| s.list_bookmarks())
+                .unwrap_or_else(|_| Ok(vec![]))
+                .unwrap_or_default();
+            let rows: String = items
+                .iter()
+                .map(|b| {
+                    let url_js = serde_json::to_string(&b.url).unwrap_or_else(|_| "\"\"".into());
+                    format!(
+                        "<div class='row' onclick='goto({url_js})'><div class='t'>{}</div><div class='u'>{}</div></div>",
+                        esc_html(if b.title.is_empty() { &b.url } else { &b.title }),
+                        esc_html(&b.url)
+                    )
+                })
+                .collect();
+            ("Bookmarks", rows)
+        }
+        PanelKind::Downloads => {
+            let items = store
+                .lock()
+                .map(|s| s.list_downloads(100))
+                .unwrap_or_else(|_| Ok(vec![]))
+                .unwrap_or_default();
+            let rows: String = items
+                .iter()
+                .map(|d| {
+                    format!(
+                        "<div class='row'><div class='t'>{}{}</div><div class='u'>{}</div></div>",
+                        if d.success { "" } else { "[failed] " },
+                        esc_html(&d.path),
+                        esc_html(&d.url)
+                    )
+                })
+                .collect();
+            ("Downloads", rows)
+        }
+    };
+    format!(
+        r#"<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+:root {{ color-scheme: dark; }}
+* {{ font-family: 'Segoe UI', sans-serif; margin: 0; }}
+body {{ background: #1b1d22; color: #e6e6e6; }}
+header {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #14151a; position: sticky; top: 0; }}
+h1 {{ font-size: 14px; }}
+button {{ background: transparent; border: none; color: #ddd; font-size: 16px; cursor: pointer; }}
+.row {{ padding: 8px 12px; border-bottom: 1px solid #2a2c33; cursor: pointer; }}
+.row:hover {{ background: #23252d; }}
+.t {{ font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+.u {{ font-size: 11px; color: #9aa0ae; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+.empty {{ padding: 16px; color: #9aa0ae; font-size: 12px; }}
+</style></head><body>
+<header><h1>{heading}</h1><button onclick="window.ipc.postMessage(JSON.stringify({{type:'close-panel'}}))">&times;</button></header>
+{body}
+<script>function goto(url) {{ window.ipc.postMessage(JSON.stringify({{type:'goto', url: url}})); }}</script>
+</body></html>"#,
+        heading = heading,
+        body = if rows.is_empty() {
+            "<div class='empty'>Nothing here yet.</div>".to_string()
+        } else {
+            rows
+        },
+    )
 }
 
 fn content_bounds(window: &tao::window::Window) -> Rect {
@@ -134,6 +256,16 @@ fn main() {
                     Some("home") => Some(UserEvent::Home),
                     Some("devtools") => Some(UserEvent::Devtools),
                     Some("bookmark") => Some(UserEvent::Bookmark),
+                    Some("open-panel") => msg
+                        .get("kind")
+                        .and_then(|k| k.as_str())
+                        .and_then(|k| match k {
+                            "history" => Some(PanelKind::History),
+                            "bookmarks" => Some(PanelKind::Bookmarks),
+                            "downloads" => Some(PanelKind::Downloads),
+                            _ => None,
+                        })
+                        .map(UserEvent::OpenPanel),
                     _ => None,
                 };
                 if let Some(ev) = ev {
@@ -145,6 +277,7 @@ fn main() {
         .expect("failed to create toolbar webview");
 
     let mut tabs: Vec<Tab> = Vec::new();
+    let mut panel: Option<WebView> = None;
     let mut next_tab_id: u64 = 1;
 
     // Helper to spawn a new tab webview.
@@ -216,6 +349,9 @@ fn main() {
                     let b = content_bounds(&window);
                     for t in &tabs {
                         let _ = t.webview.set_bounds(b);
+                    }
+                    if let Some(p) = &panel {
+                        let _ = p.set_bounds(panel_bounds(&window));
                     }
                 }
                 _ => {}
@@ -343,6 +479,44 @@ fn main() {
                             let _ = store.add_bookmark(&t.url, &t.title);
                         }
                     }
+                }
+                UserEvent::OpenPanel(kind) => {
+                    // Replace any open panel.
+                    panel = None;
+                    let html = panel_html(kind, &store);
+                    let panel_proxy = proxy.clone();
+                    let bounds = panel_bounds(&window);
+                    panel = WebViewBuilder::new()
+                        .with_html(html)
+                        .with_bounds(bounds)
+                        .with_ipc_handler(move |req| {
+                            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(req.body()) {
+                                let ev = match msg.get("type").and_then(|t| t.as_str()) {
+                                    Some("close-panel") => Some(UserEvent::ClosePanel),
+                                    Some("goto") => msg
+                                        .get("url")
+                                        .and_then(|u| u.as_str())
+                                        .map(|u| UserEvent::Goto(u.to_string())),
+                                    _ => None,
+                                };
+                                if let Some(ev) = ev {
+                                    let _ = panel_proxy.send_event(ev);
+                                }
+                            }
+                        })
+                        .build_as_child(&window)
+                        .ok();
+                }
+                UserEvent::ClosePanel => {
+                    panel = None;
+                }
+                UserEvent::Goto(url) => {
+                    panel = None;
+                    if let Some(t) = tabs.iter_mut().find(|t| Some(t.id) == active_tab) {
+                        let _ = t.webview.load_url(&url);
+                        t.url = url.clone();
+                    }
+                    sync_toolbar(&toolbar_view, &tabs, active_tab, &url);
                 }
                 UserEvent::TitleChanged(id, title) => {
                     if let Some(t) = tabs.iter_mut().find(|t| t.id == id) {

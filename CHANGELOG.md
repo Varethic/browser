@@ -3,6 +3,22 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.4.0] - 2026-11-05
+
+### Added
+- `varethic-net`: redirect following (301/302/303/307/308, up to 10 hops,
+  `NetError::TooManyRedirects`), absolute-path and relative `Location`
+  resolution. New tests: absolute-path redirect, relative redirect,
+  redirect-loop cutoff. 6 local tests pass (1 live test remains `#[ignore]`d).
+- Shell: history/bookmarks/downloads side panels opened from the toolbar
+  (\u{1F550} / \u{2605} / \u{2B07}). Panel is a child webview rendering rows from
+  `varethic-storage`; click a history/bookmark row to navigate the active
+  tab; downloads panel lists recent completed downloads with success state.
+  Panels close via \u00D7 or on navigation.
+
+### Changed
+- Workspace version 0.4.0.
+
 ## [0.3.0] - 2026-11-05
 
 ### Added
