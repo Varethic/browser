@@ -1,5 +1,20 @@
 # Progress Log
 
+## 2026-11-05 — v0.6.0
+
+Done:
+- varethic-net: in-memory CookieJar (Domain/Path/Secure/HttpOnly/Max-Age/
+  Expires, host-only vs domain match, path scoping, secure enforcement,
+  RFC 1123 Expires), get_with_jar wires cookies into requests and stores
+  Set-Cookie across redirect hops. 15 net tests pass (8 cookie unit + 1
+  HTTP roundtrip + 6 prior).
+- Pushed v0.5.0; v0.6.0 committed and pushed.
+
+Verification:
+- `cargo test -p varethic-net`: 15 passed, 1 ignored (live).
+- Cookie roundtrip test: /set then /check through jar returns
+  `cookie: session=abc123`.
+
 ## 2026-11-05 — v0.5.0
 
 Done:

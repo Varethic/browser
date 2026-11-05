@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.6.0] - 2026-11-05
+
+### Added
+- `varethic-net`: in-memory `CookieJar` (`cookies` module) — parses and stores
+  `Set-Cookie` (Domain/Path/Secure/HttpOnly/Max-Age/Expires), host-only vs
+  domain matching, path scoping, secure-over-HTTPS enforcement, expiry
+  deletion, RFC 1123 `Expires` parsing. `get_with_jar` sends the `Cookie`
+  header on requests (including redirect hops) and stores cookies seen along
+  the way. 8 cookie unit tests + 1 HTTP roundtrip integration test.
+  Not a security boundary yet (no SameSite/partitioning; memory-only).
+
 ## [0.5.0] - 2026-11-05
 
 ### Added

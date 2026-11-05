@@ -6,6 +6,9 @@
 //! and connection pooling beyond hyper's defaults are NOT yet implemented.
 //! Do not claim //net parity.
 
+pub mod cookies;
+pub use cookies::CookieJar;
+
 use std::time::Duration;
 
 use bytes::Bytes;
@@ -55,7 +58,18 @@ fn build_https_connector(
 /// Perform an HTTP(S) GET for `url` with a timeout, following redirects
 /// (301/302/303/307/308) up to 10 hops.
 pub async fn get(url: &Url, timeout: Duration) -> Result<Response, NetError> {
-    get_with_redirects(url, timeout, 10).await
+    let mut jar = CookieJar::new();
+    get_with_jar(url, timeout, &mut jar).await
+}
+
+/// Like [`get_with_redirects`], but sends cookies from `jar` and stores any
+/// `Set-Cookie` headers seen along the way (including on redirect hops).
+pub async fn get_with_jar(
+    url: &Url,
+    timeout: Duration,
+    jar: &mut CookieJar,
+) -> Result<Response, NetError> {
+    get_with_redirects_and_jar(url, timeout, 10, Some(jar)).await
 }
 
 /// Like [`get`], with an explicit redirect limit. Errors with
@@ -65,6 +79,16 @@ pub async fn get_with_redirects(
     url: &Url,
     timeout: Duration,
     max_redirects: u8,
+) -> Result<Response, NetError> {
+    get_with_redirects_and_jar(url, timeout, max_redirects, None).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn get_with_redirects_and_jar(
+    url: &Url,
+    timeout: Duration,
+    max_redirects: u8,
+    mut jar: Option<&mut CookieJar>,
 ) -> Result<Response, NetError> {
     match url.scheme.as_str() {
         "http" | "https" => {}
@@ -78,13 +102,19 @@ pub async fn get_with_redirects(
     let mut hops = 0u8;
 
     loop {
-        let req = http::Request::builder()
+        let mut builder = http::Request::builder()
             .method(http::Method::GET)
             .uri(&current)
             .header(
                 http::header::USER_AGENT,
                 concat!("Varethic/", env!("CARGO_PKG_VERSION")),
-            )
+            );
+        if let Some(jar_ref) = jar.as_deref() {
+            if let Some(cookie) = jar_ref.cookie_header(&current) {
+                builder = builder.header(http::header::COOKIE, cookie);
+            }
+        }
+        let req = builder
             .body(Empty::<Bytes>::new())
             .map_err(|e| NetError::Http(e.to_string()))?;
 
@@ -95,6 +125,14 @@ pub async fn get_with_redirects(
             .map_err(|e| NetError::Http(e.to_string()))?;
 
         let status = resp.status().as_u16();
+        if let Some(jar_ref) = jar.as_deref_mut() {
+            let raw: Vec<(String, String)> = resp
+                .headers()
+                .iter()
+                .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+                .collect();
+            jar_ref.store_from_response(&current, &raw);
+        }
         let is_redirect = matches!(status, 301 | 302 | 303 | 307 | 308);
         let location = resp
             .headers()
@@ -204,6 +242,23 @@ mod tests {
                                 .header("location", "dir/final")
                                 .body(Full::new(Bytes::new()))
                                 .unwrap(),
+                            "/set" => http::Response::builder()
+                                .status(200)
+                                .header("set-cookie", "session=abc123; Path=/")
+                                .body(Full::new(Bytes::from_static(b"cookie-set")))
+                                .unwrap(),
+                            "/check" => {
+                                let cookie = req
+                                    .headers()
+                                    .get(http::header::COOKIE)
+                                    .and_then(|v| v.to_str().ok())
+                                    .unwrap_or("none")
+                                    .to_string();
+                                http::Response::builder()
+                                    .status(200)
+                                    .body(Full::new(Bytes::from(format!("cookie: {}", cookie))))
+                                    .unwrap()
+                            }
                             _ => http::Response::builder()
                                 .status(200)
                                 .header("content-type", "text/plain")
@@ -263,6 +318,24 @@ mod tests {
         let url = format!("http://{}/redirect-loop", addr);
         let err = get_str(&url, Duration::from_secs(5)).await.unwrap_err();
         assert!(matches!(err, NetError::TooManyRedirects));
+    }
+
+    #[tokio::test]
+    async fn cookie_jar_roundtrip_over_http() {
+        let addr = spawn_test_server().await;
+        let mut jar = CookieJar::new();
+        let set_url = Url::parse(&format!("http://{}/set", addr)).unwrap();
+        let resp = get_with_jar(&set_url, Duration::from_secs(5), &mut jar)
+            .await
+            .unwrap();
+        assert_eq!(resp.body_string().unwrap(), "cookie-set");
+        assert_eq!(jar.len(), 1);
+
+        let check_url = Url::parse(&format!("http://{}/check", addr)).unwrap();
+        let resp = get_with_jar(&check_url, Duration::from_secs(5), &mut jar)
+            .await
+            .unwrap();
+        assert_eq!(resp.body_string().unwrap(), "cookie: session=abc123");
     }
 
     #[tokio::test]
