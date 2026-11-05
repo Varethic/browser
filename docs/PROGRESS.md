@@ -1,5 +1,22 @@
 # Progress Log
 
+## 2026-11-05 — v0.5.0
+
+Done:
+- Settings panel (\u2699): default search URL template editable, validated
+  (http(s), exactly one {searchTerms}), persisted in `settings` table;
+  Google remains the default; invalid values fall back to Google.
+- Private browsing (\u{1F576} button): incognito WebView2 tab; history not
+  recorded for incognito tabs; tab title prefixed with mask glyph.
+- varethic-url: search-template validation + classify_omnibox_input_with_search
+  (12 tests). varethic-storage: settings table (5 tests).
+- Launch-tested; window alive. `cargo test --workspace`: 24 passed.
+
+Not done / next:
+- Profiles (multiple named profiles), vertical tabs/workspaces/split view,
+  cookie jar in varethic-net, WHATWG ICU/IDN work, WPT/UI automation,
+  signing/installer.
+
 ## 2026-11-05 — v0.4.0
 
 Done:

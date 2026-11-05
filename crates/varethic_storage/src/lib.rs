@@ -99,6 +99,10 @@ impl Store {
                 path TEXT NOT NULL,
                 success INTEGER NOT NULL,
                 completed_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS settings (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             );",
         )?;
         Ok(())
@@ -186,6 +190,25 @@ impl Store {
             .execute("DELETE FROM bookmarks WHERE id = ?1", params![id])?)
     }
 
+    // ---- settings ----
+
+    pub fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT value FROM settings WHERE key = ?1")?;
+        let mut rows = stmt.query(params![key])?;
+        Ok(rows.next()?.map(|r| r.get(0)).transpose()?)
+    }
+
+    pub fn set_setting(&self, key: &str, value: &str) -> Result<(), StorageError> {
+        self.conn.execute(
+            "INSERT INTO settings(key, value) VALUES (?1, ?2)
+             ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
     // ---- downloads ----
 
     pub fn record_download(
@@ -263,6 +286,27 @@ mod tests {
         let list = s.list_downloads(10).unwrap();
         assert_eq!(list.len(), 1);
         assert!(list[0].success);
+    }
+
+    #[test]
+    fn settings_roundtrip() {
+        let s = Store::open_in_memory().unwrap();
+        assert_eq!(s.get_setting("search_url").unwrap(), None);
+        s.set_setting(
+            "search_url",
+            "https://www.google.com/search?q={searchTerms}",
+        )
+        .unwrap();
+        assert_eq!(
+            s.get_setting("search_url").unwrap().as_deref(),
+            Some("https://www.google.com/search?q={searchTerms}")
+        );
+        s.set_setting("search_url", "https://duckduckgo.com/?q={searchTerms}")
+            .unwrap();
+        assert_eq!(
+            s.get_setting("search_url").unwrap().as_deref(),
+            Some("https://duckduckgo.com/?q={searchTerms}")
+        );
     }
 
     #[test]

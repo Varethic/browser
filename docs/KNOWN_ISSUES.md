@@ -14,6 +14,10 @@
   or pooling controls; shell navigation still uses WebView2, not varethic-net.
 - **Per-tab state limitations.** Tabs each own a webview (good), but tab
   thumbnails, session restore, and hibernation are not implemented.
+- **varethic-storage settings are plaintext key/value** — fine for non-secrets
+  (search template), do NOT store credentials there.
+- **Incognito is per-tab via WebView2 incognito mode.** No separate window,
+  and favicon/cache partitioning beyond WebView2's guarantees is unverified.
 - **Toolbar is HTML in a webview** — it inherits WebView2 quirks; keyboard
   focus between toolbar and content needs care.
 - **Only Windows/WebView2 path exists.** No macOS/Linux backends yet.

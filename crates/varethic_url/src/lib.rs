@@ -290,13 +290,24 @@ fn looks_like_host(s: &str) -> bool {
         })
 }
 
-/// Classify omnibox input, mirroring Chromium's `AutocompleteInput` logic in
-/// simplified form: explicit scheme URLs navigate; bare hosts navigate to
-/// https; everything else is a search.
-pub fn classify_omnibox_input(input: &str) -> OmniboxTarget {
+/// Validate a search URL template: must contain `{searchTerms}` exactly once
+/// and use http(s).
+pub fn is_valid_search_template(template: &str) -> bool {
+    template.matches("{searchTerms}").count() == 1
+        && (template.starts_with("https://") || template.starts_with("http://"))
+}
+
+/// Classify omnibox input with an explicit search template. Falls back to the
+/// Google default when the template is invalid.
+pub fn classify_omnibox_input_with_search(input: &str, template: &str) -> OmniboxTarget {
+    let effective = if is_valid_search_template(template) {
+        template
+    } else {
+        DEFAULT_SEARCH_URL
+    };
     let trimmed = input.trim();
     if trimmed.is_empty() {
-        return OmniboxTarget::Search(DEFAULT_SEARCH_URL.replace("{searchTerms}", ""));
+        return OmniboxTarget::Search(effective.replace("{searchTerms}", ""));
     }
 
     // Explicit scheme, e.g. https://example.com or http://...
@@ -325,10 +336,14 @@ pub fn classify_omnibox_input(input: &str) -> OmniboxTarget {
         }
     }
 
-    // Single-word input that is a known-search-like term -> search.
-    OmniboxTarget::Search(
-        DEFAULT_SEARCH_URL.replace("{searchTerms}", &percent_encode_query(trimmed)),
-    )
+    OmniboxTarget::Search(effective.replace("{searchTerms}", &percent_encode_query(trimmed)))
+}
+
+/// Classify omnibox input, mirroring Chromium's `AutocompleteInput` logic in
+/// simplified form: explicit scheme URLs navigate; bare hosts navigate to
+/// https; everything else is a search.
+pub fn classify_omnibox_input(input: &str) -> OmniboxTarget {
+    classify_omnibox_input_with_search(input, DEFAULT_SEARCH_URL)
 }
 
 #[cfg(test)]
@@ -392,6 +407,35 @@ mod tests {
                 assert_eq!(u.host, "varethic.in.th");
             }
             other => panic!("expected navigate, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn search_template_validation() {
+        assert!(is_valid_search_template(
+            "https://www.google.com/search?q={searchTerms}"
+        ));
+        assert!(!is_valid_search_template("https://example.com/"));
+        assert!(!is_valid_search_template("ftp://x/?q={searchTerms}"));
+        assert!(!is_valid_search_template(
+            "https://x/?q={searchTerms}&r={searchTerms}"
+        ));
+    }
+
+    #[test]
+    fn custom_search_template_is_used() {
+        let t = "https://duckduckgo.com/?q={searchTerms}";
+        match classify_omnibox_input_with_search("rust lang", t) {
+            OmniboxTarget::Search(u) => {
+                assert!(u.starts_with("https://duckduckgo.com/?q="));
+                assert!(u.contains("rust+lang"));
+            }
+            other => panic!("expected search, got {:?}", other),
+        }
+        // Invalid template falls back to Google.
+        match classify_omnibox_input_with_search("rust lang", "not a url") {
+            OmniboxTarget::Search(u) => assert!(u.contains("google.com/search?q=")),
+            other => panic!("expected search, got {:?}", other),
         }
     }
 

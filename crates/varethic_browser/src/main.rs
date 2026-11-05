@@ -9,7 +9,7 @@ use tao::{
     window::WindowBuilder,
 };
 use varethic_storage::Store;
-use varethic_url::{classify_omnibox_input, OmniboxTarget};
+use varethic_url::{classify_omnibox_input_with_search, OmniboxTarget, DEFAULT_SEARCH_URL};
 use wry::dpi::{LogicalPosition, LogicalSize};
 use wry::{Rect, WebView, WebViewBuilder};
 
@@ -31,6 +31,8 @@ enum UserEvent {
     OpenPanel(PanelKind),
     ClosePanel,
     Goto(String),
+    SetSearch(String),
+    NewPrivateTab,
     TitleChanged(u64, String),
     PageLoaded(u64, String),
 }
@@ -40,20 +42,31 @@ enum PanelKind {
     History,
     Bookmarks,
     Downloads,
+    Settings,
 }
 
 struct Tab {
     id: u64,
     title: String,
     url: String,
+    incognito: bool,
     webview: WebView,
 }
 
-fn navigate_target(input: &str) -> String {
-    match classify_omnibox_input(input) {
+fn navigate_target(input: &str, search_template: &str) -> String {
+    match classify_omnibox_input_with_search(input, search_template) {
         OmniboxTarget::Navigate(u) => u.to_url_string(),
         OmniboxTarget::Search(u) => u,
     }
+}
+
+fn current_search_template(store: &Arc<Mutex<Store>>) -> String {
+    store
+        .lock()
+        .ok()
+        .and_then(|s| s.get_setting("search_url").ok().flatten())
+        .filter(|t| varethic_url::is_valid_search_template(t))
+        .unwrap_or_else(|| DEFAULT_SEARCH_URL.to_string())
 }
 
 fn panel_bounds(window: &tao::window::Window) -> Rect {
@@ -79,6 +92,36 @@ fn esc_html(s: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
+fn settings_panel_html(settings_body: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+:root {{ color-scheme: dark; }}
+* {{ font-family: 'Segoe UI', sans-serif; margin: 0; }}
+body {{ background: #1b1d22; color: #e6e6e6; }}
+header {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #14151a; }}
+h1 {{ font-size: 14px; }}
+button {{ background: transparent; border: none; color: #ddd; font-size: 16px; cursor: pointer; }}
+.settings {{ padding: 14px; display: flex; flex-direction: column; gap: 8px; }}
+label {{ font-size: 12px; }}
+.hint {{ font-size: 11px; color: #9aa0ae; }}
+input {{ height: 30px; background: #14151a; color: #eee; border: 1px solid #3d4049; border-radius: 6px; padding: 0 10px; font-size: 12px; }}
+.save {{ background: #4f8cff; color: #fff; border-radius: 6px; height: 30px; font-size: 12px; }}
+</style></head><body>
+<header><h1>Settings</h1><button onclick="window.ipc.postMessage(JSON.stringify({{type:'close-panel'}}))">&times;</button></header>
+{settings_body}
+<script>
+function saveSearch() {{
+  const v = document.getElementById('search').value;
+  window.ipc.postMessage(JSON.stringify({{type:'set-search', value: v}}));
+  document.getElementById('status').textContent = 'Saved (applies to new searches).';
+}}
+</script>
+</body></html>"#,
+        settings_body = settings_body
+    )
 }
 
 fn panel_html(kind: PanelKind, store: &Arc<Mutex<Store>>) -> String {
@@ -120,6 +163,22 @@ fn panel_html(kind: PanelKind, store: &Arc<Mutex<Store>>) -> String {
                 })
                 .collect();
             ("Bookmarks", rows)
+        }
+        PanelKind::Settings => {
+            let current = store
+                .lock()
+                .ok()
+                .and_then(|s| s.get_setting("search_url").ok().flatten())
+                .unwrap_or_else(|| DEFAULT_SEARCH_URL.to_string());
+            let body = format!(
+                "<div class='settings'><label for='search'>Default search URL template</label>
+                 <div class='hint'>Must be http(s) and contain {{searchTerms}} exactly once. Google is the default.</div>
+                 <input id='search' type='text' value='{}' spellcheck='false'>
+                 <button class='save' onclick='saveSearch()'>Save</button>
+                 <div id='status' class='hint'></div></div>",
+                esc_html(&current)
+            );
+            return settings_panel_html(&body);
         }
         PanelKind::Downloads => {
             let items = store
@@ -242,6 +301,7 @@ fn main() {
                         .and_then(|i| i.as_str())
                         .map(|s| UserEvent::Navigate(s.to_string())),
                     Some("new-tab") => Some(UserEvent::NewTab),
+                    Some("new-private-tab") => Some(UserEvent::NewPrivateTab),
                     Some("close-tab") => msg
                         .get("id")
                         .and_then(|i| i.as_u64())
@@ -263,6 +323,7 @@ fn main() {
                             "history" => Some(PanelKind::History),
                             "bookmarks" => Some(PanelKind::Bookmarks),
                             "downloads" => Some(PanelKind::Downloads),
+                            "settings" => Some(PanelKind::Settings),
                             _ => None,
                         })
                         .map(UserEvent::OpenPanel),
@@ -286,13 +347,15 @@ fn main() {
                      url: &str,
                      proxy: &tao::event_loop::EventLoopProxy<UserEvent>,
                      store: Arc<Mutex<Store>>,
-                     downloads_dir: PathBuf|
+                     downloads_dir: PathBuf,
+                     incognito: bool|
      -> WebView {
         let title_proxy = proxy.clone();
         let load_proxy = proxy.clone();
         let dl_completed_store = store.clone();
         WebViewBuilder::new()
             .with_url(url)
+            .with_incognito(incognito)
             .with_bounds(content_bounds(window))
             .with_document_title_changed_handler(move |title| {
                 let _ = title_proxy.send_event(UserEvent::TitleChanged(tab_id, title));
@@ -328,11 +391,13 @@ fn main() {
         &proxy,
         store.clone(),
         downloads_dir.clone(),
+        false,
     );
     tabs.push(Tab {
         id: next_tab_id,
         title: "New Tab".into(),
         url: NEW_TAB_URL.into(),
+        incognito: false,
         webview: first,
     });
     let mut active_tab: Option<u64> = Some(next_tab_id);
@@ -367,6 +432,7 @@ fn main() {
                         &proxy,
                         store.clone(),
                         downloads_dir.clone(),
+                        false,
                     );
                     // Hide previous active tab.
                     if let Some(active) = active_tab {
@@ -378,6 +444,37 @@ fn main() {
                         id,
                         title: "New Tab".into(),
                         url: NEW_TAB_URL.into(),
+                        incognito: false,
+                        webview: view,
+                    });
+                    active_tab = Some(id);
+                    if let Some(t) = tabs.last() {
+                        let _ = t.webview.set_visible(true);
+                    }
+                    sync_toolbar(&toolbar_view, &tabs, active_tab, NEW_TAB_URL);
+                }
+                UserEvent::NewPrivateTab => {
+                    let id = next_tab_id;
+                    next_tab_id += 1;
+                    let view = spawn_tab(
+                        &window,
+                        id,
+                        NEW_TAB_URL,
+                        &proxy,
+                        store.clone(),
+                        downloads_dir.clone(),
+                        true,
+                    );
+                    if let Some(active) = active_tab {
+                        if let Some(t) = tabs.iter().find(|t| t.id == active) {
+                            let _ = t.webview.set_visible(false);
+                        }
+                    }
+                    tabs.push(Tab {
+                        id,
+                        title: "\u{1F576} New Private Tab".into(),
+                        url: NEW_TAB_URL.into(),
+                        incognito: true,
                         webview: view,
                     });
                     active_tab = Some(id);
@@ -401,11 +498,13 @@ fn main() {
                                 &proxy,
                                 store.clone(),
                                 downloads_dir.clone(),
+                                false,
                             );
                             tabs.push(Tab {
                                 id: nid,
                                 title: "New Tab".into(),
                                 url: NEW_TAB_URL.into(),
+                                incognito: false,
                                 webview: view,
                             });
                             active_tab = Some(nid);
@@ -437,7 +536,8 @@ fn main() {
                     sync_toolbar(&toolbar_view, &tabs, active_tab, &url);
                 }
                 UserEvent::Navigate(input) => {
-                    let url = navigate_target(&input);
+                    let template = current_search_template(&store);
+                    let url = navigate_target(&input, &template);
                     if let Some(active) = active_tab {
                         if let Some(t) = tabs.iter_mut().find(|t| t.id == active) {
                             let _ = t.webview.load_url(&url);
@@ -480,6 +580,14 @@ fn main() {
                         }
                     }
                 }
+                UserEvent::SetSearch(template) => {
+                    if varethic_url::is_valid_search_template(&template) {
+                        if let Ok(store) = store.lock() {
+                            let _ = store.set_setting("search_url", &template);
+                        }
+                        panel = None; // close settings panel on save
+                    }
+                }
                 UserEvent::OpenPanel(kind) => {
                     // Replace any open panel.
                     panel = None;
@@ -493,6 +601,10 @@ fn main() {
                             if let Ok(msg) = serde_json::from_str::<serde_json::Value>(req.body()) {
                                 let ev = match msg.get("type").and_then(|t| t.as_str()) {
                                     Some("close-panel") => Some(UserEvent::ClosePanel),
+                                    Some("set-search") => msg
+                                        .get("value")
+                                        .and_then(|v| v.as_str())
+                                        .map(|v| UserEvent::SetSearch(v.to_string())),
                                     Some("goto") => msg
                                         .get("url")
                                         .and_then(|u| u.as_str())
@@ -520,7 +632,11 @@ fn main() {
                 }
                 UserEvent::TitleChanged(id, title) => {
                     if let Some(t) = tabs.iter_mut().find(|t| t.id == id) {
-                        t.title = title;
+                        t.title = if t.incognito {
+                            format!("\u{1F576} {}", title)
+                        } else {
+                            title
+                        };
                     }
                     let url = tabs
                         .iter()
@@ -530,13 +646,13 @@ fn main() {
                     sync_toolbar(&toolbar_view, &tabs, active_tab, &url);
                 }
                 UserEvent::PageLoaded(id, url) => {
-                    let title = if let Some(t) = tabs.iter_mut().find(|t| t.id == id) {
+                    let (title, incognito) = if let Some(t) = tabs.iter_mut().find(|t| t.id == id) {
                         t.url = url.clone();
-                        t.title.clone()
+                        (t.title.clone(), t.incognito)
                     } else {
-                        String::new()
+                        (String::new(), false)
                     };
-                    if !url.starts_with("about:") && !url.starts_with("data:") {
+                    if !incognito && !url.starts_with("about:") && !url.starts_with("data:") {
                         if let Ok(store) = store.lock() {
                             let _ = store.record_visit(&url, &title);
                         }

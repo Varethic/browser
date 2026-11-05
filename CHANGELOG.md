@@ -3,6 +3,21 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.5.0] - 2026-11-05
+
+### Added
+- Settings panel (\u2699): configurable default search URL template persisted in
+  the `settings` table (`%LOCALAPPDATA%\Varethic\varethic.db`); validation via
+  `varethic_url::is_valid_search_template` (http(s) + exactly one
+  `{searchTerms}`); invalid templates fall back to Google at query time.
+- Private browsing: \u{1F576} button opens an incognito tab (WebView2 incognito
+  mode); incognito tabs show a mask glyph in the tab strip and their page
+  loads are NOT written to history. Bookmarks/downloads still work.
+- `varethic-storage`: `settings` key/value table + `get_setting`/`set_setting`.
+- `varethic-url`: `is_valid_search_template`,
+  `classify_omnibox_input_with_search` (Google default preserved). 12 unit tests.
+- Storage roundtrip test for settings. Workspace total: 24 tests pass.
+
 ## [0.4.0] - 2026-11-05
 
 ### Added
