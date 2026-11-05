@@ -3,11 +3,11 @@ resolver = "2"
 members = [
     "crates/varethic_url",
     "crates/varethic_engine_core",
-    "crates/varethic_browser",
+    "crates/varethic_browser", "crates/varethic_net",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "BSD-3-Clause"
 repository = "https://github.com/Varethic/browser"

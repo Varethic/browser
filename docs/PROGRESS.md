@@ -1,5 +1,25 @@
 # Progress Log
 
+## 2026-11-05 — v0.2.0
+
+Done:
+- New crate `varethic-net`: hyper + rustls HTTP/1.1 GET (HTTP and HTTPS via
+  webpki-roots), timeout support, typed errors. Tests: local hyper server
+  returns `varethic-net-ok` (pass); unsupported scheme rejected pre-network;
+  timeout on unroutable host; ignored live test against
+  https://www.google.com/ run manually — passed (status 200/30x).
+- `varethic-url`: bracketed IPv6 parsing, HostKind (Ipv4/Ipv6/Localhost/
+  Domain), is_ipv4. 10 unit tests pass.
+- Registry/docs updated; //net now InProgress. Workspace version 0.2.0.
+
+Not done / next:
+- Redirects, cookies, download manager on varethic-net; history/bookmarks
+  storage (rusqlite); shell integration of varethic-net for downloads.
+
+Verification:
+- `cargo test --workspace`: 14 passed (10 url + 3 net + 1 registry).
+- `cargo test -p varethic-net -- --ignored`: live Google HTTPS passed.
+
 ## 2026-11-05 — v0.1.0
 
 Environment: Windows 11, Rust 1.99.1 (stable-x86_64-pc-windows-msvc), VS2022

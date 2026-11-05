@@ -104,7 +104,7 @@ impl Url {
             None => (rest, "/".to_string()),
         };
 
-        // userinfo@host:port
+        // userinfo@host:port  (IPv6 literals are bracketed: [::1]:8080)
         let (userinfo, hostport) = match authority.rfind('@') {
             Some(i) => (Some(&authority[..i]), &authority[i + 1..]),
             None => (None, authority),
@@ -117,17 +117,36 @@ impl Url {
             None => (None, None),
         };
 
-        let (host, port) = match hostport.rfind(':') {
-            Some(i) => {
-                let h = &hostport[..i];
-                let p = &hostport[i + 1..];
+        let (host, port) = if let Some(stripped) = hostport.strip_prefix('[') {
+            // Bracketed IPv6 literal, optional :port after the closing bracket.
+            let close = stripped.find(']').ok_or(UrlError::MissingHost)?;
+            let h = format!("[{}]", &stripped[..close]);
+            let after = &stripped[close + 1..];
+            if after.is_empty() {
+                (h, None)
+            } else if let Some(p) = after.strip_prefix(':') {
                 if p.is_empty() || !p.chars().all(|c| c.is_ascii_digit()) {
                     return Err(UrlError::InvalidPort);
                 }
-                let port: u16 = p.parse().map_err(|_| UrlError::InvalidPort)?;
-                (h.to_string(), Some(port))
+                (h, Some(p.parse().map_err(|_| UrlError::InvalidPort)?))
+            } else {
+                return Err(UrlError::InvalidPort);
             }
-            None => (hostport.to_string(), None),
+        } else {
+            match hostport.rfind(':') {
+                Some(i) => {
+                    let h = &hostport[..i];
+                    let p = &hostport[i + 1..];
+                    if p.is_empty() || !p.chars().all(|c| c.is_ascii_digit()) {
+                        return Err(UrlError::InvalidPort);
+                    }
+                    (
+                        h.to_string(),
+                        Some(p.parse().map_err(|_| UrlError::InvalidPort)?),
+                    )
+                }
+                None => (hostport.to_string(), None),
+            }
         };
 
         if host.is_empty() {
@@ -187,6 +206,43 @@ impl Url {
 impl fmt::Display for Url {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&self.to_url_string())
+    }
+}
+
+/// Classification of a parsed host, useful for omnibox and security decisions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HostKind {
+    Ipv4,
+    Ipv6,
+    Localhost,
+    Domain,
+}
+
+/// Returns true if `s` is a dotted-quad IPv4 literal.
+pub fn is_ipv4(s: &str) -> bool {
+    let parts: Vec<&str> = s.split('.').collect();
+    parts.len() == 4
+        && parts.iter().all(|p| {
+            !p.is_empty()
+                && p.len() <= 3
+                && p.chars().all(|c| c.is_ascii_digit())
+                && p.parse::<u8>().is_ok()
+        })
+}
+
+impl Url {
+    /// Classify the host: IPv4 literal, [IPv6] literal, localhost, or domain.
+    pub fn host_kind(&self) -> HostKind {
+        let h = self.host.trim_start_matches('[').trim_end_matches(']');
+        if is_ipv4(h) {
+            HostKind::Ipv4
+        } else if self.host.starts_with('[') || h.contains(':') {
+            HostKind::Ipv6
+        } else if h.eq_ignore_ascii_case("localhost") {
+            HostKind::Localhost
+        } else {
+            HostKind::Domain
+        }
     }
 }
 
@@ -337,6 +393,29 @@ mod tests {
             }
             other => panic!("expected navigate, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn host_kind_detection() {
+        assert_eq!(
+            Url::parse("http://[::1]:8080/").unwrap().host_kind(),
+            HostKind::Ipv6
+        );
+        assert_eq!(
+            Url::parse("http://192.168.0.1/").unwrap().host_kind(),
+            HostKind::Ipv4
+        );
+        assert_eq!(
+            Url::parse("http://localhost:3000/").unwrap().host_kind(),
+            HostKind::Localhost
+        );
+        assert_eq!(
+            Url::parse("https://example.com/").unwrap().host_kind(),
+            HostKind::Domain
+        );
+        assert!(is_ipv4("10.0.0.255"));
+        assert!(!is_ipv4("10.0.0.256"));
+        assert!(!is_ipv4("example.com"));
     }
 
     #[test]

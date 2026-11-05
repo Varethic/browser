@@ -1,0 +1,20 @@
+[package]
+name = "varethic-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Rust network stack subset (successor path to Chromium //net): HTTP/1.1 client with rustls TLS"
+
+[dependencies]
+hyper = { version = "1", features = ["client", "http1"] }
+hyper-util = { version = "0.1", features = ["client", "client-legacy", "http1", "tokio"] }
+hyper-rustls = { version = "0.27", features = ["http1", "tls12", "webpki-roots"] }
+http-body-util = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "net", "time", "io-util", "macros"] }
+http = "1"
+bytes = "1"
+varethic-url = { path = "../varethic_url" }
+thiserror = "2"
+
+[dev-dependencies]
+hyper = { version = "1", features = ["server", "http1"] }

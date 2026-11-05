@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.2.0] - 2026-11-05
+
+### Added
+- `varethic-net`: safe-Rust network stack subset (successor path to Chromium
+  `//net`) — async HTTP/1.1 GET over HTTP and HTTPS via hyper + rustls
+  (webpki-roots), timeouts, `USER_AGENT: Varethic/<version>`. Tests: local
+  hyper server (pass), unsupported-scheme rejection, timeout handling, plus a
+  `#[ignore]`d live-HTTPS test that was run once and passed against
+  `https://www.google.com/`.
+- `varethic-url`: bracketed IPv6 literal parsing (`http://[::1]:8080/`),
+  `HostKind` classification (IPv4 / IPv6 / localhost / domain), `is_ipv4`
+  validator. 10 unit tests.
+
+### Changed
+- Migration registry: `//net` now tracked as `InProgress` with
+  `varethic-net`. Nothing is marked `Migrated` yet.
+- Workspace version 0.2.0.
+
 ## [0.1.0] - 2026-11-05
 
 ### Added

@@ -35,9 +35,9 @@ pub const COMPONENT_REGISTRY: &[ComponentEntry] = &[
     ComponentEntry {
         chromium_path: "//net",
         name: "Network stack",
-        rust_crate: None,
-        status: MigrationStatus::Legacy,
-        notes: "Not started. Rendering currently delegated to system WebView2.",
+        rust_crate: Some("varethic-net"),
+        status: MigrationStatus::InProgress,
+        notes: "HTTP/1.1 GET over HTTP+HTTPS (rustls/webpki-roots), local-server and live-network tested. Redirects/cookies/cache/HTTP2 not yet implemented.",
     },
     ComponentEntry {
         chromium_path: "//content",

@@ -14,7 +14,7 @@ not integrated · `Migrated` — integrated and verified
 | Chromium path | Component | Status | Rust crate | Notes |
 |---|---|---|---|---|
 | `//url` | URL parsing / GURL / omnibox | InProgress | `varethic-url` | Parse/validate/canonicalize + omnibox classifier, 9 unit tests. WHATWG parity + IDN pending. |
-| `//net` | Network stack | Legacy | — | Planned Phase 2 (rustls + hyper). |
+| `//net` | Network stack | InProgress | `varethic-net` | HTTP/1.1 GET (http+https, rustls), tested vs local server and live Google. Redirects/cookies/cache/HTTP2 pending. |
 | `//services/network` | Network process | Legacy | — | Depends on //net work. |
 | `//content` | Navigation / lifecycle | Legacy | — | Bootstrapped by WebView2. |
 | `//mojo` | IPC | Legacy | — | Shell uses tao/wry IPC with typed events. |

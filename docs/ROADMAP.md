@@ -12,9 +12,9 @@ milestone, PATCH = fixes.
 - [x] First engine component: varethic-url (successor to //url), unit tested
 
 ## Phase 2 — Engine (v0.2.x)
-- [ ] varethic_url: full WHATWG URL conformance, IDN/punycode, origin calc
-- [ ] varethic_net: HTTP/HTTPS client (rustls + hyper), replacing //net
-      subset used by the shell
+- [x] varethic_net (v0.2.0): HTTP/1.1 GET subset (rustls+hyper), tested
+- [ ] varethic_net: redirects, cookies, cache, HTTP/2, download manager
+- [x] varethic_url: IPv4/IPv6/host-kind + omnibox (10 tests); WHATWG full parity, IDN, origins pending
 - [ ] Download manager on top of varethic_net
 - [ ] Cookie jar in Rust
 - [ ] Swap shell navigation to varethic_net for supported schemes
