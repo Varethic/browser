@@ -1,20 +1,34 @@
 # Testing
 
-## Current (v0.1.0)
+## Current (v0.20.0)
 
 ```powershell
 cargo test --workspace
 ```
 
-- `varethic-url`: 9 unit tests — parsing, canonicalization, ports,
-  userinfo, omnibox navigate-vs-search classification, percent-encoding.
+59 tests, all passing (1 `#[ignore]`d live-network test excluded):
+
+- `varethic-url`: 19 tests — parsing/canonicalization, ports, userinfo,
+  percent-encoding, IDN/UTS #46, WHATWG origins, path dot-segment
+  normalization, omnibox navigate-vs-search classification, plus differential
+  vectors ported from Chromium's `url_unittest.cc` / `url_canon_unittest.cc`
+  and a documented divergences test.
+- `varethic-net`: 31 tests — local hyper servers exercise GET, absolute and
+  relative redirects, redirect-limit errors, cookies (incl. SameSite), POST
+  echo, scheme rejection, timeout, cache hits, and ETag/Last-Modified
+  revalidation with a 304. One `#[ignore]`d live-HTTPS test.
+- `varethic-storage`: 8 tests — history upsert/search/clear, bookmarks,
+  downloads, settings, profiles, workspaces, disk HTTP cache, on-disk
+  persistence.
 - `varethic-engine-core`: registry consistency test.
-- `varethic-net`: 3 local tests (local hyper server, scheme rejection,
-  timeout) + 1 `#[ignore]`d live-HTTPS test (run manually, passed).
-- `varethic-storage`: 4 unit tests (history upsert/search/clear, bookmarks,
-  downloads, on-disk persistence).
-- Browser binary: built debug and launch-tested; window stays alive,
-  `%LOCALAPPDATA%\Varethic\varethic.db` is created on first run.
+- Browser binary: built and launch-tested (window stays alive; DB created on
+  first run).
+
+## Experimental (not asserted)
+
+`tests/experimental/` holds UI-automation harnesses that do **not** currently
+pass reliably; see its README for what was learned. They are not part of the
+verified suite.
 
 ## Scripted smoke test (v0.17.0+)
 

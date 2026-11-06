@@ -92,6 +92,19 @@ async fn get_with_redirects_and_jar(
     max_redirects: u8,
     mut jar: Option<&mut CookieJar>,
 ) -> Result<Response, NetError> {
+    get_with_redirects_jar_headers(url, timeout, max_redirects, jar, &[]).await
+}
+
+/// Core GET: follows redirects, carries a cookie jar, and applies `extra`
+/// request headers to the *first* hop only (conditional validators must not be
+/// replayed after a redirect to a different resource).
+async fn get_with_redirects_jar_headers(
+    url: &Url,
+    timeout: Duration,
+    max_redirects: u8,
+    mut jar: Option<&mut CookieJar>,
+    extra: &[(String, String)],
+) -> Result<Response, NetError> {
     match url.scheme.as_str() {
         "http" | "https" => {}
         other => return Err(NetError::UnsupportedScheme(other.to_string())),
@@ -111,6 +124,11 @@ async fn get_with_redirects_and_jar(
                 http::header::USER_AGENT,
                 concat!("Varethic/", env!("CARGO_PKG_VERSION")),
             );
+        if hops == 0 {
+            for (k, v) in extra {
+                builder = builder.header(k.as_str(), v.as_str());
+            }
+        }
         if let Some(jar_ref) = jar.as_deref() {
             if let Some(cookie) = jar_ref.cookie_header(&current) {
                 builder = builder.header(http::header::COOKIE, cookie);
@@ -256,8 +274,12 @@ pub async fn post(
     })
 }
 
-/// GET with an in-memory cache: serve from `cache` when a fresh entry exists,
-/// otherwise perform the request and store cacheable responses.
+/// GET with an in-memory cache: serve from `cache` when a fresh entry exists.
+/// When a stored entry is stale but carries an ETag / Last-Modified validator,
+/// revalidate with a conditional request (`If-None-Match` /
+/// `If-Modified-Since`); a `304 Not Modified` refreshes the entry without
+/// re-downloading the body. Otherwise perform the request and store cacheable
+/// responses.
 pub async fn get_cached(
     url: &Url,
     timeout: Duration,
@@ -267,6 +289,28 @@ pub async fn get_cached(
     if let Some(hit) = cache.get(&key) {
         return Ok(hit);
     }
+
+    if let Some(v) = cache.stale_validators(&key) {
+        let mut extra: Vec<(String, String)> = Vec::new();
+        if let Some(etag) = &v.etag {
+            extra.push(("if-none-match".into(), etag.clone()));
+        }
+        if let Some(lm) = &v.last_modified {
+            extra.push(("if-modified-since".into(), lm.clone()));
+        }
+        let resp = get_with_redirects_jar_headers(url, timeout, 10, None, &extra).await?;
+        if resp.status == 304 {
+            if let Some(fresh) = cache.confirm_not_modified(&key) {
+                return Ok(fresh);
+            }
+        } else {
+            // Resource changed (or revalidation failed): drop the stale entry.
+            cache.invalidate(&key);
+        }
+        cache.store(&key, &resp);
+        return Ok(resp);
+    }
+
     let resp = get(url, timeout).await?;
     cache.store(&key, &resp);
     Ok(resp)
@@ -508,5 +552,85 @@ mod tests {
             .await
             .unwrap_err();
         assert!(matches!(err, NetError::Timeout(_) | NetError::Http(_)));
+    }
+
+    /// Server that emits an ETag and answers `If-None-Match` with 304.
+    async fn spawn_revalidating_server(
+    ) -> (SocketAddr, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use std::sync::atomic::Ordering;
+        let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let ctr = counter.clone();
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let io = TokioIo::new(stream);
+                let ctr = ctr.clone();
+                tokio::spawn(async move {
+                    let svc = service_fn(move |req: http::Request<hyper::body::Incoming>| {
+                        let ctr = ctr.clone();
+                        async move {
+                            ctr.fetch_add(1, Ordering::SeqCst);
+                            let inm = req
+                                .headers()
+                                .get(http::header::IF_NONE_MATCH)
+                                .and_then(|v| v.to_str().ok())
+                                .unwrap_or("")
+                                .to_string();
+                            let resp = if inm == "\"v1\"" {
+                                http::Response::builder()
+                                    .status(304)
+                                    .header("etag", "\"v1\"")
+                                    .body(Full::new(Bytes::new()))
+                                    .unwrap()
+                            } else {
+                                http::Response::builder()
+                                    .status(200)
+                                    .header("etag", "\"v1\"")
+                                    .header("cache-control", "max-age=60")
+                                    .body(Full::new(Bytes::from_static(b"revalidated-body")))
+                                    .unwrap()
+                            };
+                            Ok::<_, Infallible>(resp)
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, svc)
+                        .await;
+                });
+            }
+        });
+        (addr, counter)
+    }
+
+    #[tokio::test]
+    async fn stale_entry_revalidated_with_304() {
+        use std::sync::atomic::Ordering;
+        let (addr, counter) = spawn_revalidating_server().await;
+        let url = Url::parse(&format!("http://{}/revalidate", addr)).unwrap();
+        let key = url.to_url_string();
+        let mut cache = HttpCache::new(8);
+
+        let r1 = get_cached(&url, Duration::from_secs(5), &mut cache)
+            .await
+            .unwrap();
+        assert_eq!(r1.body_string().unwrap(), "revalidated-body");
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+        // Force the entry stale; a conditional request must yield 304 and the
+        // original body must still be served, without a second full download.
+        cache.expire(&key);
+        let r2 = get_cached(&url, Duration::from_secs(5), &mut cache)
+            .await
+            .unwrap();
+        assert_eq!(r2.status, 200);
+        assert_eq!(r2.body_string().unwrap(), "revalidated-body");
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            2,
+            "exactly one revalidation"
+        );
+        assert_eq!(cache.hits(), 1, "304 confirmed from cache");
     }
 }

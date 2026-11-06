@@ -3,6 +3,31 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.20.0] - 2026-11-06
+
+### Added
+- `varethic-net`: HTTP cache revalidation. Stale entries carrying an `ETag` or
+  `Last-Modified` validator are revalidated with a conditional request
+  (`If-None-Match` / `If-Modified-Since`); a `304 Not Modified` refreshes the
+  entry and serves the stored body without a second download. New cache API:
+  `Validators`, `stale_validators`, `confirm_not_modified`, `invalidate`,
+  `expire`; conditional headers are applied to the first hop only. 4 cache
+  tests + 1 end-to-end test with a 304 server (31 net tests total).
+- `tests/experimental/`: parked, clearly-labelled UI-automation harnesses plus
+  a README recording what was learned (UIA exposes toolbar buttons by
+  AutomationId; `SetValue` does not fire `keydown`, so omnibox navigation is
+  not yet automatable).
+
+### Changed
+- `docs/KNOWN_ISSUES.md` rewritten to match reality at v0.20.0 (was stale:
+  claimed v0.1.0, no IDN, SameSite-blind). Now records the WebView2 dependency,
+  nothing-Migrated status, unbuilt Chromium, HTTP/1.1-only net, unwired disk
+  cache, and smoke-only UI validation.
+
+### Fixed
+- `HttpCache::get` no longer deletes a stale entry on lookup, so it remains
+  available for conditional revalidation.
+
 ## [0.19.0] - 2026-11-06
 
 ### Added

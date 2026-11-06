@@ -1,5 +1,18 @@
 # Progress Log
 
+## 2026-11-06 — v0.20.0
+
+Done:
+- varethic-net: cache revalidation via conditional requests (ETag/Last-Modified
+  -> If-None-Match/If-Modified-Since, 304 handling). 31 net tests pass
+  (was 27); workspace 59 tests.
+- Fixed HttpCache::get deleting stale entries (blocked revalidation).
+- docs/KNOWN_ISSUES.md rewritten to match v0.20.0 reality (was stale v0.1.0
+  text claiming no IDN / SameSite-blind).
+- tests/experimental/: parked UI-automation harnesses + honest README. Learned
+  UIA exposes toolbar buttons by AutomationId, but omnibox navigation can't be
+  driven (SetValue doesn't fire keydown; synthetic keys undelivered here).
+
 ## 2026-11-06 — v0.19.0
 
 Done:
