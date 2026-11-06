@@ -82,6 +82,8 @@ pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
   <button class="navbtn" id="bookmarks" title="Bookmarks">&#9733;</button>
   <button class="navbtn" id="downloads" title="Downloads">&#11015;</button>
   <button class="navbtn" id="private" title="New private tab">&#128377;</button>
+  <button class="navbtn" id="split" title="Toggle split view">&#9631;</button>
+  <button class="navbtn" id="spliturl" title="Split pane URL">&#9638;</button>
   <button class="navbtn" id="vtabs" title="Toggle vertical tabs">&#9776;</button>
   <button class="navbtn" id="profiles" title="Profiles">&#128100;</button>
   <button class="navbtn" id="settings" title="Settings">&#9881;</button>
@@ -101,6 +103,8 @@ pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
   document.getElementById('private').onclick = () => send({type: 'new-private-tab'});
   document.getElementById('settings').onclick = () => send({type: 'open-panel', kind: 'settings'});
   document.getElementById('vtabs').onclick = () => send({type: 'toggle-vertical'});
+  document.getElementById('split').onclick = () => send({type: 'toggle-split'});
+  document.getElementById('spliturl').onclick = () => send({type: 'open-panel', kind: 'split'});
   document.getElementById('profiles').onclick = () => send({type: 'open-panel', kind: 'profiles'});
   const omni = document.getElementById('omnibox');
   omni.addEventListener('keydown', e => {

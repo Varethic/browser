@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.11.0] - 2026-11-06
+
+### Added
+- Split view: \u25A2 toolbar button toggles a two-pane layout — content area
+  splits in half, right pane is a child webview loading `split_url` (sent-setting
+  persisted as `split_url`, defaults to Google); the split-pane URL is editable
+  via the \u25A6 panel (`set-split` IPC, URL validation). Bounds update on toggle,
+  resize, and in combination with vertical tabs. Launch-tested.
+
 ## [0.10.0] - 2026-11-06
 
 ### Added

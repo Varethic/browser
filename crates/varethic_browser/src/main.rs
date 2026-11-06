@@ -32,6 +32,8 @@ enum UserEvent {
     ClosePanel,
     Goto(String),
     ToggleVerticalTabs,
+    ToggleSplitView,
+    SetSplitUrl(String),
     SetSearch(String),
     NewPrivateTab,
     SetProfile(String),
@@ -47,6 +49,7 @@ enum PanelKind {
     Downloads,
     Settings,
     Profiles,
+    Split,
 }
 
 struct Tab {
@@ -86,6 +89,12 @@ fn toolbar_h(vertical: bool) -> f64 {
     } else {
         toolbar::TOOLBAR_HEIGHT as f64
     }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Pane {
+    Left,
+    Right,
 }
 
 fn sidebar_bounds(window: &tao::window::Window, vertical: bool) -> Rect {
@@ -148,6 +157,35 @@ function newProfile() {{
 </script>
 </body></html>"#,
         profiles_body = profiles_body
+    )
+}
+
+fn split_panel_html(split_body: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+:root {{ color-scheme: dark; }}
+* {{ font-family: 'Segoe UI', sans-serif; margin: 0; }}
+body {{ background: #1b1d22; color: #e6e6e6; }}
+header {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #14151a; }}
+h1 {{ font-size: 14px; }}
+button {{ background: transparent; border: none; color: #ddd; font-size: 16px; cursor: pointer; }}
+.settings {{ padding: 14px; display: flex; flex-direction: column; gap: 8px; }}
+label {{ font-size: 12px; }}
+.hint {{ font-size: 11px; color: #9aa0ae; }}
+input {{ height: 30px; background: #14151a; color: #eee; border: 1px solid #3d4049; border-radius: 6px; padding: 0 10px; font-size: 12px; }}
+.save {{ background: #4f8cff; color: #fff; border-radius: 6px; height: 30px; font-size: 12px; }}
+</style></head><body>
+<header><h1>Split view</h1><button onclick="window.ipc.postMessage(JSON.stringify({{type:'close-panel'}}))">&times;</button></header>
+{split_body}
+<script>
+function saveSplit() {{
+  const v = document.getElementById('spliturl').value.trim();
+  window.ipc.postMessage(JSON.stringify({{type:'set-split', value: v}}));
+  document.getElementById('status').textContent = 'Applied.';
+}}
+</script>
+</body></html>"#,
+        split_body = split_body
     )
 }
 
@@ -270,6 +308,22 @@ fn panel_html(kind: PanelKind, store: &Arc<Mutex<Store>>, registry: &Arc<Mutex<S
             );
             return settings_panel_html(&body);
         }
+        PanelKind::Split => {
+            let current = store
+                .lock()
+                .ok()
+                .and_then(|s| s.get_setting("split_url").ok().flatten())
+                .unwrap_or_else(|| HOME_URL.to_string());
+            let body = format!(
+                "<div class='settings'><label for='spliturl'>Split pane URL</label>
+                 <div class='hint'>URL loaded in the right pane of split view. Google is the default.</div>
+                 <input id='spliturl' type='text' value='{}' spellcheck='false'>
+                 <button class='save' onclick='saveSplit()'>Apply</button>
+                 <div id='status' class='hint'></div></div>",
+                esc_html(&current)
+            );
+            return split_panel_html(&body);
+        }
         PanelKind::Downloads => {
             let items = store
                 .lock()
@@ -317,21 +371,33 @@ button {{ background: transparent; border: none; color: #ddd; font-size: 16px; c
     )
 }
 
-fn content_bounds(window: &tao::window::Window, vertical: bool) -> Rect {
+fn content_bounds(window: &tao::window::Window, vertical: bool, split: bool, pane: Pane) -> Rect {
     let scale = window.scale_factor();
     let size = window.inner_size();
-    let x = if vertical {
+    let base_x = if vertical {
         toolbar::SIDEBAR_WIDTH
     } else {
         0.0
     };
-    Rect {
-        position: LogicalPosition::new(x, toolbar_h(vertical)).into(),
-        size: LogicalSize::new(
-            (size.width as f64 / scale) - x,
-            (size.height as f64 / scale) - toolbar_h(vertical),
-        )
-        .into(),
+    let full_w = (size.width as f64 / scale) - base_x;
+    let h = toolbar_h(vertical);
+    let full_h = (size.height as f64 / scale) - h;
+    if !split {
+        return Rect {
+            position: LogicalPosition::new(base_x, h).into(),
+            size: LogicalSize::new(full_w, full_h).into(),
+        };
+    }
+    let half = full_w / 2.0;
+    match pane {
+        Pane::Left => Rect {
+            position: LogicalPosition::new(base_x, h).into(),
+            size: LogicalSize::new(half, full_h).into(),
+        },
+        Pane::Right => Rect {
+            position: LogicalPosition::new(base_x + half, h).into(),
+            size: LogicalSize::new(full_w - half, full_h).into(),
+        },
     }
 }
 
@@ -431,6 +497,14 @@ fn main() {
         profile_base.join("profiles").join(name).join("varethic.db")
     };
 
+    let mut split = false; // toggled by the ◫ toolbar button
+    let mut split_view: Option<WebView> = None;
+    let mut split_url = store
+        .lock()
+        .ok()
+        .and_then(|s| s.get_setting("split_url").ok().flatten())
+        .filter(|u| varethic_url::Url::parse(u).is_ok())
+        .unwrap_or_else(|| HOME_URL.to_string());
     let mut vertical = false; // toggled by the \u{2630} toolbar button
                               // Toolbar (browser chrome) child webview.
     let ipc_proxy = proxy.clone();
@@ -447,6 +521,7 @@ fn main() {
                     Some("new-tab") => Some(UserEvent::NewTab),
                     Some("new-private-tab") => Some(UserEvent::NewPrivateTab),
                     Some("toggle-vertical") => Some(UserEvent::ToggleVerticalTabs),
+                    Some("toggle-split") => Some(UserEvent::ToggleSplitView),
                     Some("close-tab") => msg
                         .get("id")
                         .and_then(|i| i.as_u64())
@@ -470,6 +545,7 @@ fn main() {
                             "downloads" => Some(PanelKind::Downloads),
                             "settings" => Some(PanelKind::Settings),
                             "profiles" => Some(PanelKind::Profiles),
+                            "split" => Some(PanelKind::Split),
                             _ => None,
                         })
                         .map(UserEvent::OpenPanel),
@@ -496,6 +572,7 @@ fn main() {
                      store: Arc<Mutex<Store>>,
                      downloads_dir: PathBuf,
                      incognito: bool,
+                     split: bool,
                      vertical: bool|
      -> WebView {
         let title_proxy = proxy.clone();
@@ -504,7 +581,7 @@ fn main() {
         WebViewBuilder::new()
             .with_url(url)
             .with_incognito(incognito)
-            .with_bounds(content_bounds(window, vertical))
+            .with_bounds(content_bounds(window, vertical, split, Pane::Left))
             .with_document_title_changed_handler(move |title| {
                 let _ = title_proxy.send_event(UserEvent::TitleChanged(tab_id, title));
             })
@@ -540,6 +617,7 @@ fn main() {
         store.clone(),
         downloads_dir.clone(),
         false,
+        split,
         vertical,
     );
     tabs.push(Tab {
@@ -560,7 +638,7 @@ fn main() {
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::Resized(_) => {
                     let _ = toolbar_view.set_bounds(full_width_toolbar_bounds(&window, vertical));
-                    let b = content_bounds(&window, vertical);
+                    let b = content_bounds(&window, vertical, split, Pane::Left);
                     for t in &tabs {
                         let _ = t.webview.set_bounds(b);
                     }
@@ -569,6 +647,10 @@ fn main() {
                     }
                     if let Some(sb) = &sidebar {
                         let _ = sb.set_bounds(sidebar_bounds(&window, vertical));
+                    }
+                    if let Some(sv) = &split_view {
+                        let _ =
+                            sv.set_bounds(content_bounds(&window, vertical, split, Pane::Right));
                     }
                 }
                 _ => {}
@@ -585,6 +667,7 @@ fn main() {
                         store.clone(),
                         downloads_dir.clone(),
                         false,
+                        split,
                         vertical,
                     );
                     // Hide previous active tab.
@@ -611,12 +694,15 @@ fn main() {
                     let _ = toolbar_view.set_bounds(full_width_toolbar_bounds(&window, vertical));
                     let _ = toolbar_view
                         .evaluate_script(&format!("window.__setVertical({});", vertical));
-                    let b = content_bounds(&window, vertical);
+                    let b = content_bounds(&window, vertical, split, Pane::Left);
                     for t in &tabs {
                         let _ = t.webview.set_bounds(b);
                     }
                     if let Some(p) = &panel {
                         let _ = p.set_bounds(panel_bounds(&window, vertical));
+                    }
+                    if let Some(sv) = &split_view {
+                        let _ = sv.set_bounds(content_bounds(&window, vertical, true, Pane::Right));
                     }
                     sidebar = if vertical {
                         let sb_proxy = proxy.clone();
@@ -655,6 +741,44 @@ fn main() {
                         .unwrap_or_default();
                     sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, &url);
                 }
+                UserEvent::ToggleSplitView => {
+                    split = !split;
+                    let b_left = content_bounds(&window, vertical, split, Pane::Left);
+                    for t in &tabs {
+                        let _ = t.webview.set_bounds(b_left);
+                    }
+                    split_view = if split {
+                        WebViewBuilder::new()
+                            .with_url(&split_url)
+                            .with_bounds(content_bounds(&window, vertical, true, Pane::Right))
+                            .build_as_child(&window)
+                            .ok()
+                    } else {
+                        None
+                    };
+                    if let Some(p) = &panel {
+                        let _ = p.set_bounds(panel_bounds(&window, vertical));
+                    }
+                }
+                UserEvent::SetSplitUrl(raw) => {
+                    let trimmed = raw.trim();
+                    let target =
+                        if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+                            trimmed.to_string()
+                        } else {
+                            format!("https://{}", trimmed)
+                        };
+                    if varethic_url::Url::parse(&target).is_ok() {
+                        split_url = target;
+                        if let Ok(store) = store.lock() {
+                            let _ = store.set_setting("split_url", &split_url);
+                        }
+                        if let Some(sv) = &split_view {
+                            let _ = sv.load_url(&split_url);
+                        }
+                        panel = None;
+                    }
+                }
                 UserEvent::NewPrivateTab => {
                     let id = next_tab_id;
                     next_tab_id += 1;
@@ -666,6 +790,7 @@ fn main() {
                         store.clone(),
                         downloads_dir.clone(),
                         true,
+                        split,
                         vertical,
                     );
                     if let Some(active) = active_tab {
@@ -702,6 +827,7 @@ fn main() {
                                 store.clone(),
                                 downloads_dir.clone(),
                                 false,
+                                split,
                                 vertical,
                             );
                             tabs.push(Tab {
@@ -832,6 +958,10 @@ fn main() {
                                         .get("name")
                                         .and_then(|v| v.as_str())
                                         .map(|v| UserEvent::SetProfile(v.to_string())),
+                                    Some("set-split") => msg
+                                        .get("value")
+                                        .and_then(|v| v.as_str())
+                                        .map(|v| UserEvent::SetSplitUrl(v.to_string())),
                                     Some("new-profile") => msg
                                         .get("name")
                                         .and_then(|v| v.as_str())

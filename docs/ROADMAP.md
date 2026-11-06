@@ -28,7 +28,8 @@ milestone, PATCH = fixes.
 
 ## Phase 4 — Browser features (v0.4.x)
 - [x] Vertical tabs (toggle + sidebar tab list)
-- [ ] Workspaces, split view
+- [x] Split view (two panes + configurable split URL)
+- [ ] Workspaces
 - [x] Bookmarks capture (☆ button, stored), download handling (save + record),
       history recording — UI for history/bookmarks/downloads list NOT done
 - [x] History/bookmarks/downloads UI (side panels wired to varethic-storage)

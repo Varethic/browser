@@ -1,5 +1,13 @@
 # Progress Log
 
+## 2026-11-06 — v0.11.0
+
+Done:
+- Split view: \u25A2 toggle splits content into two panes; right pane webview
+  loads configurable split_url (settings-backed, default Google); \u25A6 panel
+  edits it. Works alongside vertical tabs; resize keeps both panes bounded.
+  Launch-tested. 38 workspace tests pass.
+
 ## 2026-11-06 — v0.10.0
 
 Done:
