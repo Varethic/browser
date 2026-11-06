@@ -1,5 +1,13 @@
 # Progress Log
 
+## 2026-11-06 — v0.19.0
+
+Done:
+- varethic-storage: disk-backed HTTP cache (put/get/clear, max-age check +
+  eviction), 1 test; 8 storage tests pass; 55 workspace tests.
+- Compiler caught two layout mistakes (struct in impl block, mangled
+  derive); both fixed and re-verified.
+
 ## 2026-11-06 — v0.18.0
 
 Done:

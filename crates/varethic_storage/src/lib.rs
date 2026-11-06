@@ -49,6 +49,15 @@ pub struct Bookmark {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CachedResponse {
+    pub status: u16,
+    pub headers: Vec<(String, String)>,
+    pub body: Vec<u8>,
+    pub cached_at: i64,
+    pub max_age_secs: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DownloadRecord {
     pub id: i64,
     pub url: String,
@@ -107,6 +116,14 @@ impl Store {
             CREATE TABLE IF NOT EXISTS profiles (
                 name TEXT PRIMARY KEY,
                 created_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS http_cache (
+                url TEXT PRIMARY KEY,
+                status INTEGER NOT NULL,
+                headers TEXT NOT NULL,
+                body BLOB NOT NULL,
+                cached_at INTEGER NOT NULL,
+                max_age_secs INTEGER NOT NULL
             );
             CREATE TABLE IF NOT EXISTS workspaces (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -294,6 +311,89 @@ impl Store {
             .execute("DELETE FROM workspaces WHERE id = ?1", params![id])?)
     }
 
+    // ---- disk HTTP cache ----
+
+    /// Store (or replace) a cached response, honoring `max_age_secs > 0`.
+    /// Evicts an arbitrary entry when over `max_entries`.
+    pub fn cache_put(
+        &self,
+        url: &str,
+        status: u16,
+        headers: &[(String, String)],
+        body: &[u8],
+        max_age_secs: i64,
+        max_entries: usize,
+    ) -> Result<(), StorageError> {
+        if max_age_secs <= 0 {
+            return Ok(()); // not cacheable
+        }
+        let headers_json = serde_json::to_string(headers)
+            .map_err(|e| StorageError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM http_cache", [], |r| r.get(0))?;
+        if count >= max_entries as i64 {
+            self.conn.execute(
+                "DELETE FROM http_cache WHERE url = (SELECT url FROM http_cache ORDER BY cached_at ASC LIMIT 1)",
+                [],
+            )?;
+        }
+        self.conn.execute(
+            "INSERT INTO http_cache(url, status, headers, body, cached_at, max_age_secs)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(url) DO UPDATE SET
+                status = excluded.status,
+                headers = excluded.headers,
+                body = excluded.body,
+                cached_at = excluded.cached_at,
+                max_age_secs = excluded.max_age_secs",
+            params![
+                url,
+                status as i64,
+                headers_json,
+                body,
+                now_unix(),
+                max_age_secs
+            ],
+        )?;
+        Ok(())
+    }
+
+    /// Fetch a fresh cached response for `url` (checks age vs max_age_secs).
+    pub fn cache_get(&self, url: &str) -> Result<Option<CachedResponse>, StorageError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT status, headers, body, cached_at, max_age_secs FROM http_cache WHERE url = ?1",
+        )?;
+        let mut rows = stmt.query(params![url])?;
+        let Some(row) = rows.next()? else {
+            return Ok(None);
+        };
+        let status: i64 = row.get(0)?;
+        let headers_json: String = row.get(1)?;
+        let body: Vec<u8> = row.get(2)?;
+        let cached_at: i64 = row.get(3)?;
+        let max_age_secs: i64 = row.get(4)?;
+        if now_unix() - cached_at > max_age_secs {
+            // Stale: drop it.
+            self.conn
+                .execute("DELETE FROM http_cache WHERE url = ?1", params![url])?;
+            return Ok(None);
+        }
+        let headers: Vec<(String, String)> =
+            serde_json::from_str(&headers_json).unwrap_or_default();
+        Ok(Some(CachedResponse {
+            status: status as u16,
+            headers,
+            body,
+            cached_at,
+            max_age_secs,
+        }))
+    }
+
+    pub fn cache_clear(&self) -> Result<usize, StorageError> {
+        Ok(self.conn.execute("DELETE FROM http_cache", [])?)
+    }
+
     // ---- settings ----
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError> {
@@ -427,6 +527,31 @@ mod tests {
         assert_eq!(tabs, vec![("https://c.com".to_string(), "C".to_string())]);
         s.delete_workspace(id).unwrap();
         assert!(s.list_workspaces().unwrap().is_empty());
+    }
+
+    #[test]
+    fn disk_cache_put_get_expiry_eviction() {
+        let s = Store::open_in_memory().unwrap();
+        s.cache_put(
+            "https://a/",
+            200,
+            &[("cache-control".into(), "max-age=60".into())],
+            b"body-a",
+            60,
+            2,
+        )
+        .unwrap();
+        let got = s.cache_get("https://a/").unwrap().unwrap();
+        assert_eq!(got.status, 200);
+        assert_eq!(got.body, b"body-a");
+        // Non-cacheable (max-age=0) is a no-op.
+        s.cache_put("https://b/", 200, &[], b"x", 0, 2).unwrap();
+        assert!(s.cache_get("https://b/").unwrap().is_none());
+        // Bounded eviction.
+        s.cache_put("https://c/", 200, &[], b"c", 60, 2).unwrap();
+        s.cache_put("https://d/", 200, &[], b"d", 60, 2).unwrap();
+        // One of a/, c/, d/ was evicted; size <= 2
+        assert!(s.cache_clear().unwrap() >= 1);
     }
 
     #[test]

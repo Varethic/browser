@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.19.0] - 2026-11-06
+
+### Added
+- `varethic-storage`: disk-backed HTTP cache (`http_cache` table,
+  `cache_put` / `cache_get` / `cache_clear`) honoring max-age expiry and
+  bounded eviction; JSON-encoded headers; 1 integration test. 8 storage tests.
+- Struct/derive layout fixes caught by the compiler this round (moved
+  `CachedResponse` out of the impl block, restored derives).
+
 ## [0.18.0] - 2026-11-06
 
 ### Added

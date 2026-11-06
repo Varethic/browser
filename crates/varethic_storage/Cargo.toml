@@ -8,6 +8,7 @@ description = "Rust storage layer (successor path to Chromium //sql + //componen
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 thiserror = "2"
+serde_json = "1"
 
 [dev-dependencies]
 tempfile = "3"
