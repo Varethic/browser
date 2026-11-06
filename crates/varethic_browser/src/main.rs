@@ -2,12 +2,14 @@ mod toolbar;
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use tao::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoopBuilder},
     window::WindowBuilder,
 };
+use varethic_net::HttpCache;
 use varethic_storage::Store;
 use varethic_url::{classify_omnibox_input_with_search, OmniboxTarget, DEFAULT_SEARCH_URL};
 use wry::dpi::{LogicalPosition, LogicalSize};
@@ -31,6 +33,8 @@ enum UserEvent {
     OpenPanel(PanelKind),
     ClosePanel,
     Goto(String),
+    EngineFetch(String),
+    EngineFetchDone(String),
     ToggleVerticalTabs,
     ToggleSplitView,
     SetSplitUrl(String),
@@ -54,6 +58,7 @@ enum PanelKind {
     Profiles,
     Split,
     Workspaces,
+    Fetch,
 }
 
 struct Tab {
@@ -407,6 +412,9 @@ fn panel_html(kind: PanelKind, store: &Arc<Mutex<Store>>, registry: &Arc<Mutex<S
                 .collect();
             ("Downloads", rows)
         }
+        PanelKind::Fetch => {
+            return fetch_panel_html(None);
+        }
     };
     format!(
         r#"<!DOCTYPE html><html><head><meta charset="utf-8"><style>
@@ -433,6 +441,207 @@ button {{ background: transparent; border: none; color: #ddd; font-size: 16px; c
             rows
         },
     )
+}
+
+/// HTML for the "Varethic Fetch" panel: a URL box whose requests are served by
+/// the migrated Rust network stack (`varethic-net`) rather than WebView2, with
+/// the result cached in `varethic-storage`'s disk cache.
+fn fetch_panel_html(result: Option<&str>) -> String {
+    let body = result.unwrap_or(
+        "<div class='empty'>Enter a URL or search. This panel is served by the \
+         Varethic Rust network engine (varethic-net): in-memory cache with \
+         ETag/Last-Modified revalidation, persisted to the SQLite disk cache.</div>",
+    );
+    format!(
+        r#"<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+:root {{ color-scheme: dark; }}
+* {{ font-family: 'Segoe UI', sans-serif; margin: 0; box-sizing: border-box; }}
+body {{ background: #1b1d22; color: #e6e6e6; }}
+header {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #14151a; position: sticky; top: 0; }}
+h1 {{ font-size: 14px; }}
+.tag {{ font-size: 10px; color: #9ad0ff; border: 1px solid #2f5c86; border-radius: 8px; padding: 1px 6px; margin-left: 6px; }}
+button {{ background: transparent; border: none; color: #ddd; font-size: 16px; cursor: pointer; }}
+.settings {{ padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; }}
+label {{ font-size: 11px; color: #9aa0ae; }}
+.hint {{ font-size: 11px; color: #9aa0ae; }}
+input {{ height: 30px; border-radius: 6px; border: 1px solid #3d4049; background: #14151a; color: #eee; padding: 0 10px; font-size: 12px; }}
+.save {{ align-self: flex-start; background: #2f5c86; border-radius: 6px; padding: 6px 12px; font-size: 12px; color: #fff; }}
+.empty {{ padding: 16px; color: #9aa0ae; font-size: 12px; line-height: 1.5; }}
+.meta {{ padding: 8px 12px; font-size: 11px; color: #9ad0ff; border-bottom: 1px solid #2a2c33; }}
+pre.body {{ padding: 10px 12px; font-size: 11px; white-space: pre-wrap; word-break: break-word; color: #cfd3dc; font-family: Consolas, monospace; }}
+</style></head><body>
+<header><h1>Varethic Fetch<span class="tag">Rust engine</span></h1>
+<button onclick="window.ipc.postMessage(JSON.stringify({{type:'close-panel'}}))">&times;</button></header>
+<div class="settings">
+  <label for="url">URL or search</label>
+  <input id="url" type="text" placeholder="https://example.com/" spellcheck="false" autocomplete="off">
+  <button class="save" onclick="doFetch()">Fetch with Varethic engine</button>
+</div>
+<div id="result">{body}</div>
+<script>
+  function doFetch() {{
+    var u = document.getElementById('url').value.trim();
+    if (u) window.ipc.postMessage(JSON.stringify({{type: 'engine-fetch', url: u}}));
+  }}
+  document.getElementById('url').addEventListener('keydown', function (e) {{
+    if (e.key === 'Enter') doFetch();
+  }});
+</script>
+</body></html>"#,
+        body = body
+    )
+}
+
+fn fetch_error_html(msg: &str) -> String {
+    format!("<div class='empty'>\u{26A0} {}</div>", esc_html(msg))
+}
+
+fn fetch_result_html(
+    source: &str,
+    status: u16,
+    headers: &[(String, String)],
+    body: &[u8],
+) -> String {
+    let content_type = headers
+        .iter()
+        .find(|(k, _)| k.eq_ignore_ascii_case("content-type"))
+        .map(|(_, v)| v.as_str())
+        .unwrap_or("");
+    let text = String::from_utf8_lossy(body);
+    let preview: String = text.chars().take(4000).collect();
+    let truncated = if text.chars().count() > 4000 {
+        "\n\n… (preview truncated)"
+    } else {
+        ""
+    };
+    format!(
+        "<div class='meta'>source: {} &middot; status {} &middot; {} bytes{}</div>\
+         <pre class='body'>{}{}</pre>",
+        esc_html(source),
+        status,
+        body.len(),
+        if content_type.is_empty() {
+            String::new()
+        } else {
+            format!(" &middot; {}", esc_html(content_type))
+        },
+        esc_html(&preview),
+        truncated
+    )
+}
+
+/// Build the fetch panel webview. `result` is a pre-rendered HTML fragment.
+fn build_fetch_panel(
+    window: &tao::window::Window,
+    result: Option<&str>,
+    proxy: &tao::event_loop::EventLoopProxy<UserEvent>,
+    vertical: bool,
+) -> Option<WebView> {
+    let panel_proxy = proxy.clone();
+    WebViewBuilder::new()
+        .with_html(fetch_panel_html(result))
+        .with_bounds(panel_bounds(window, vertical))
+        .with_ipc_handler(move |req| {
+            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(req.body()) {
+                let ev = match msg.get("type").and_then(|t| t.as_str()) {
+                    Some("close-panel") => Some(UserEvent::ClosePanel),
+                    Some("engine-fetch") => msg
+                        .get("url")
+                        .and_then(|u| u.as_str())
+                        .filter(|u| !u.trim().is_empty())
+                        .map(|u| UserEvent::EngineFetch(u.to_string())),
+                    _ => None,
+                };
+                if let Some(ev) = ev {
+                    let _ = panel_proxy.send_event(ev);
+                }
+            }
+        })
+        .build_as_child(window)
+        .ok()
+}
+
+/// Run a fetch through the migrated Rust network stack. Blocking: intended to
+/// be called on a worker thread. Returns an HTML fragment describing the
+/// outcome. Lookup order: disk cache -> memory cache -> network (revalidating).
+fn run_engine_fetch(
+    input: &str,
+    store: Arc<Mutex<Store>>,
+    cache: Arc<Mutex<HttpCache>>,
+    rt: Arc<tokio::runtime::Runtime>,
+) -> String {
+    let search = store
+        .lock()
+        .ok()
+        .and_then(|s| s.get_setting("search_url").ok().flatten())
+        .filter(|t| varethic_url::is_valid_search_template(t))
+        .unwrap_or_else(|| DEFAULT_SEARCH_URL.to_string());
+    let target = navigate_target(input, &search);
+    let parsed = match varethic_url::Url::parse(&target) {
+        Ok(u) => u,
+        Err(e) => return fetch_error_html(&format!("invalid URL: {e}")),
+    };
+
+    // 1. In-memory cache (fresh entries only) — cheapest.
+    if let Ok(mut mem) = cache.lock() {
+        if let Some(hit) = mem.get(&target) {
+            return fetch_result_html("memory cache", hit.status, &hit.headers, &hit.body);
+        }
+    }
+
+    // 2. Persistent disk cache (survives restarts) -> prime the memory cache.
+    if let Ok(s) = store.lock() {
+        if let Ok(Some(hit)) = s.cache_get(&target) {
+            if let Ok(mut mem) = cache.lock() {
+                mem.seed(
+                    &target,
+                    hit.status,
+                    &hit.headers,
+                    &hit.body,
+                    hit.max_age_secs,
+                );
+            }
+            return fetch_result_html("disk cache", hit.status, &hit.headers, &hit.body);
+        }
+    }
+
+    // 3. Network, with stale-entry revalidation.
+    let outcome = {
+        let mut mem = match cache.lock() {
+            Ok(g) => g,
+            Err(_) => return fetch_error_html("cache lock poisoned"),
+        };
+        rt.block_on(varethic_net::get_cached(
+            &parsed,
+            Duration::from_secs(15),
+            &mut mem,
+        ))
+    };
+
+    match outcome {
+        Ok(resp) => {
+            let cc = resp
+                .headers
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case("cache-control"))
+                .map(|(_, v)| v.as_str())
+                .unwrap_or("");
+            if let Some(max_age) = varethic_net::cache::cacheable_max_age(cc) {
+                if let Ok(s) = store.lock() {
+                    let _ = s.cache_put(
+                        &target,
+                        resp.status,
+                        &resp.headers,
+                        &resp.body,
+                        max_age.as_secs() as i64,
+                        128,
+                    );
+                }
+            }
+            fetch_result_html("network", resp.status, &resp.headers, &resp.body)
+        }
+        Err(e) => fetch_error_html(&format!("fetch failed: {e}")),
+    }
 }
 
 fn recreate_panel(
@@ -485,6 +694,11 @@ fn recreate_panel(
                         .get("id")
                         .and_then(|v| v.as_i64())
                         .map(UserEvent::DeleteWorkspace),
+                    Some("engine-fetch") => msg
+                        .get("url")
+                        .and_then(|u| u.as_str())
+                        .filter(|u| !u.trim().is_empty())
+                        .map(|u| UserEvent::EngineFetch(u.to_string())),
                     _ => None,
                 };
                 if let Some(ev) = ev {
@@ -672,6 +886,7 @@ fn main() {
                             "profiles" => Some(PanelKind::Profiles),
                             "split" => Some(PanelKind::Split),
                             "workspaces" => Some(PanelKind::Workspaces),
+                            "fetch" => Some(PanelKind::Fetch),
                             _ => None,
                         })
                         .map(UserEvent::OpenPanel),
@@ -689,6 +904,11 @@ fn main() {
     let mut panel: Option<WebView> = None;
     let mut sidebar: Option<WebView> = None;
     let mut next_tab_id: u64 = 1;
+
+    // Rust network engine state, used by the "Varethic Fetch" panel.
+    let engine_cache = Arc::new(Mutex::new(HttpCache::new(64)));
+    let engine_rt =
+        Arc::new(tokio::runtime::Runtime::new().expect("failed to start tokio runtime"));
 
     // Helper to spawn a new tab webview.
     let spawn_tab = |window: &tao::window::Window,
@@ -1147,10 +1367,33 @@ fn main() {
                 UserEvent::OpenPanel(kind) => {
                     // Replace any open panel.
                     panel = None;
-                    panel = recreate_panel(&window, kind, &store, &registry, &proxy, vertical);
+                    panel = if kind == PanelKind::Fetch {
+                        build_fetch_panel(&window, None, &proxy, vertical)
+                    } else {
+                        recreate_panel(&window, kind, &store, &registry, &proxy, vertical)
+                    };
                 }
                 UserEvent::ClosePanel => {
                     panel = None;
+                }
+                UserEvent::EngineFetch(input) => {
+                    panel = build_fetch_panel(
+                        &window,
+                        Some("<div class='empty'>Fetching with the Varethic Rust engine\u{2026}</div>"),
+                        &proxy,
+                        vertical,
+                    );
+                    let fetch_store = store.clone();
+                    let fetch_cache = engine_cache.clone();
+                    let fetch_rt = engine_rt.clone();
+                    let fetch_proxy = proxy.clone();
+                    std::thread::spawn(move || {
+                        let html = run_engine_fetch(&input, fetch_store, fetch_cache, fetch_rt);
+                        let _ = fetch_proxy.send_event(UserEvent::EngineFetchDone(html));
+                    });
+                }
+                UserEvent::EngineFetchDone(html) => {
+                    panel = build_fetch_panel(&window, Some(&html), &proxy, vertical);
                 }
                 UserEvent::Goto(url) => {
                     panel = None;
@@ -1198,4 +1441,76 @@ fn main() {
             _ => {}
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::{Read, Write};
+
+    /// Minimal single-purpose HTTP/1.1 server: one route, fixed body, caching
+    /// headers. Dependency-free so the shell crate needs no extra dev-deps.
+    fn spawn_tiny_server(body: &'static str) -> std::net::SocketAddr {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(mut s) = stream else { break };
+                let mut buf = [0u8; 2048];
+                let _ = s.read(&mut buf);
+                let resp = format!(
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\
+                     Cache-Control: max-age=60\r\nContent-Length: {}\r\n\
+                     Connection: close\r\n\r\n{}",
+                    body.len(),
+                    body
+                );
+                let _ = s.write_all(resp.as_bytes());
+                let _ = s.flush();
+            }
+        });
+        addr
+    }
+
+    #[test]
+    fn engine_fetch_network_then_memory_then_disk_cache() {
+        let addr = spawn_tiny_server("engine-fetch-body");
+        let store = Arc::new(Mutex::new(Store::open_in_memory().unwrap()));
+        let cache = Arc::new(Mutex::new(HttpCache::new(8)));
+        let rt = Arc::new(tokio::runtime::Runtime::new().unwrap());
+        let url = format!("http://{}/page", addr);
+
+        // 1. First fetch: from the network.
+        let html1 = run_engine_fetch(&url, store.clone(), cache.clone(), rt.clone());
+        assert!(html1.contains("engine-fetch-body"), "html1={html1}");
+        assert!(html1.contains("source: network"), "html1={html1}");
+
+        // 2. Second fetch: served from the in-memory cache (no new request).
+        let html2 = run_engine_fetch(&url, store.clone(), cache.clone(), rt.clone());
+        assert!(html2.contains("source: memory cache"), "html2={html2}");
+
+        // The response was also persisted to the SQLite disk cache.
+        let disk = store.lock().unwrap().cache_get(&url).unwrap();
+        assert!(disk.is_some(), "response must be persisted to disk cache");
+
+        // 3. Clear the memory cache: the disk cache now serves it.
+        cache.lock().unwrap().clear();
+        let html3 = run_engine_fetch(&url, store.clone(), cache.clone(), rt.clone());
+        assert!(html3.contains("source: disk cache"), "html3={html3}");
+        assert!(html3.contains("engine-fetch-body"), "html3={html3}");
+    }
+
+    #[test]
+    fn engine_fetch_reports_invalid_url() {
+        let store = Arc::new(Mutex::new(Store::open_in_memory().unwrap()));
+        let cache = Arc::new(Mutex::new(HttpCache::new(8)));
+        let rt = Arc::new(tokio::runtime::Runtime::new().unwrap());
+        // A search term classified as navigate: scheme-less non-URL input is
+        // turned into a Google search URL, so use an explicitly bad scheme.
+        let html = run_engine_fetch("ftp://example.com/x", store, cache, rt);
+        assert!(
+            html.contains("fetch failed") || html.contains("invalid URL"),
+            "html={html}"
+        );
+    }
 }

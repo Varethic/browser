@@ -90,7 +90,7 @@ async fn get_with_redirects_and_jar(
     url: &Url,
     timeout: Duration,
     max_redirects: u8,
-    mut jar: Option<&mut CookieJar>,
+    jar: Option<&mut CookieJar>,
 ) -> Result<Response, NetError> {
     get_with_redirects_jar_headers(url, timeout, max_redirects, jar, &[]).await
 }

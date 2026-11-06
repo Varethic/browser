@@ -1,5 +1,18 @@
 # Progress Log
 
+## 2026-11-06 — v0.21.0
+
+Done:
+- Integrated the migrated network into the shell: "Varethic Fetch" panel (⚡)
+  fetches via varethic-net, memory -> disk cache -> network (revalidating),
+  persists to varethic-storage's SQLite cache.
+- varethic-net: HttpCache::seed (+1 test -> 32 net tests).
+- varethic-browser: 2 end-to-end tests with a dependency-free HTTP/1.1 server
+  (network -> memory -> disk layering, persistence, invalid URL).
+- 62 workspace tests pass; ui_smoke.ps1 passes with the new panel.
+- First-lookup order bug found by the E2E test (disk checked before memory);
+  fixed to memory -> disk -> network.
+
 ## 2026-11-06 — v0.20.0
 
 Done:

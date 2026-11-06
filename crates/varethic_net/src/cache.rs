@@ -181,6 +181,37 @@ impl HttpCache {
         }
     }
 
+    /// Prime the cache from an already-known response (e.g. one loaded from the
+    /// persistent disk cache) so it can be served without a network round trip.
+    /// Entries with a non-positive `max_age_secs` are ignored.
+    pub fn seed(
+        &mut self,
+        url: &str,
+        status: u16,
+        headers: &[(String, String)],
+        body: &[u8],
+        max_age_secs: i64,
+    ) {
+        if max_age_secs <= 0 || status != 200 {
+            return;
+        }
+        if self.entries.len() >= self.max_entries {
+            if let Some(key) = self.entries.keys().next().cloned() {
+                self.entries.remove(&key);
+            }
+        }
+        self.entries.insert(
+            url.to_string(),
+            CacheEntry {
+                status,
+                headers: headers.to_vec(),
+                body: Bytes::copy_from_slice(body),
+                stored_at: Instant::now(),
+                max_age: Duration::from_secs(max_age_secs as u64),
+            },
+        );
+    }
+
     /// Store a response if its `Cache-Control` permits. Returns true if stored.
     pub fn store(&mut self, url: &str, response: &Response) -> bool {
         let cc = response
@@ -339,5 +370,24 @@ mod tests {
         assert!(c.store("https://a/", &resp("max-age=60", "x")));
         c.expire("https://a/");
         assert!(c.stale_validators("https://a/").is_none());
+    }
+
+    #[test]
+    fn seed_primes_cache_from_disk_entry() {
+        let mut c = HttpCache::new(4);
+        c.seed(
+            "https://a/",
+            200,
+            &[("content-type".into(), "text/plain".into())],
+            b"from-disk",
+            60,
+        );
+        let hit = c.get("https://a/").expect("seeded entry must be servable");
+        assert_eq!(hit.body_string().unwrap(), "from-disk");
+        // Non-cacheable / non-200 seeds are ignored.
+        c.seed("https://b/", 200, &[], b"x", 0);
+        c.seed("https://c/", 404, &[], b"x", 60);
+        assert!(c.get("https://b/").is_none());
+        assert!(c.get("https://c/").is_none());
     }
 }

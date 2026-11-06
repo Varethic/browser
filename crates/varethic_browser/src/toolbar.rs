@@ -88,6 +88,7 @@ pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
   <button class="navbtn" id="vtabs" title="Toggle vertical tabs">&#9776;</button>
   <button class="navbtn" id="profiles" title="Profiles">&#128100;</button>
   <button class="navbtn" id="settings" title="Settings">&#9881;</button>
+  <button class="navbtn" id="fetch" title="Fetch with Varethic Rust engine">&#9889;</button>
   <button class="navbtn" id="devtools" title="DevTools">&lt;/&gt;</button>
 </div>
 <script>
@@ -103,6 +104,7 @@ pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
   document.getElementById('downloads').onclick = () => send({type: 'open-panel', kind: 'downloads'});
   document.getElementById('private').onclick = () => send({type: 'new-private-tab'});
   document.getElementById('settings').onclick = () => send({type: 'open-panel', kind: 'settings'});
+  document.getElementById('fetch').onclick = () => send({type: 'open-panel', kind: 'fetch'});
   document.getElementById('vtabs').onclick = () => send({type: 'toggle-vertical'});
   document.getElementById('split').onclick = () => send({type: 'toggle-split'});
   document.getElementById('workspaces').onclick = () => send({type: 'open-panel', kind: 'workspaces'});

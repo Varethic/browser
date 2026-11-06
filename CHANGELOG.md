@@ -3,6 +3,26 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.21.0] - 2026-11-06
+
+### Added
+- **The migrated Rust network stack now serves the browser.** New "Varethic
+  Fetch" panel (toolbar `⚡`) fetches a URL or search through `varethic-net`
+  instead of WebView2, and displays the status, content type and body preview.
+  Lookup order: in-memory cache → persistent disk cache → network (with
+  ETag/Last-Modified revalidation). Responses are persisted to
+  `varethic-storage`'s SQLite disk cache keyed by URL.
+- `varethic-net`: `HttpCache::seed`, to prime the memory cache from a disk
+  entry; 1 new test.
+- `varethic-browser`: 2 end-to-end tests driving a dependency-free local
+  HTTP/1.1 server — verifies network → memory cache → disk cache layering and
+  that responses are actually persisted, plus invalid-URL handling.
+
+### Changed
+- `varethic-browser` now depends on `varethic-net` and `tokio`
+  (`rt-multi-thread`); fetches run on a worker thread and marshal results back
+  through the tao event loop proxy.
+
 ## [0.20.0] - 2026-11-06
 
 ### Added

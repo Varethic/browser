@@ -37,7 +37,7 @@ pub const COMPONENT_REGISTRY: &[ComponentEntry] = &[
         name: "Network stack",
         rust_crate: Some("varethic-net"),
         status: MigrationStatus::InProgress,
-        notes: "HTTP/1.1 GET/POST + redirects + cookie jar (SameSite enforced; two-label site approx, no PSL) + response cache with ETag/Last-Modified revalidation (304). HTTP2/proxy/disk-backed cache path pending.",
+        notes: "HTTP/1.1 GET/POST + redirects + cookie jar (SameSite enforced; two-label site approx, no PSL) + response cache with ETag/Last-Modified revalidation (304). Now serves the shell's Varethic Fetch panel; normal page loads still use WebView2. HTTP2/proxy pending.",
     },
     ComponentEntry {
         chromium_path: "//content",

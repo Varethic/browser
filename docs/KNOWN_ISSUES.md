@@ -25,8 +25,9 @@ Last reviewed: v0.20.0 (2026-11-06).
   connection pooling beyond hyper defaults, no disk cache backend in the
   network path (the disk cache exists in `varethic-storage` but
   `get_cached` uses the in-memory cache), no `Vary` handling.
-- **Disk HTTP cache is not wired into the shell.** `varethic-storage` exposes
-  `cache_put`/`cache_get`, but the browser does not use it yet.
+- **Disk HTTP cache is now used by the shell**, but only by the "Varethic
+  Fetch" panel (⚡). Normal page loads still go through WebView2 and never
+  touch `varethic-net` or the disk cache.
 - **Per-tab state limitations.** Tab thumbnails, session restore, and tab
   hibernation are not implemented. Workspaces store tab URL sets but do not
   create isolated storage contexts.

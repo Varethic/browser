@@ -1,28 +1,33 @@
 # Testing
 
-## Current (v0.20.0)
+## Current (v0.21.0)
 
 ```powershell
 cargo test --workspace
 ```
 
-59 tests, all passing (1 `#[ignore]`d live-network test excluded):
+62 tests, all passing (1 `#[ignore]`d live-network test excluded):
 
 - `varethic-url`: 19 tests — parsing/canonicalization, ports, userinfo,
   percent-encoding, IDN/UTS #46, WHATWG origins, path dot-segment
   normalization, omnibox navigate-vs-search classification, plus differential
   vectors ported from Chromium's `url_unittest.cc` / `url_canon_unittest.cc`
   and a documented divergences test.
-- `varethic-net`: 31 tests — local hyper servers exercise GET, absolute and
+- `varethic-net`: 32 tests — local hyper servers exercise GET, absolute and
   relative redirects, redirect-limit errors, cookies (incl. SameSite), POST
-  echo, scheme rejection, timeout, cache hits, and ETag/Last-Modified
-  revalidation with a 304. One `#[ignore]`d live-HTTPS test.
+  echo, scheme rejection, timeout, cache hits, ETag/Last-Modified revalidation
+  with a 304, and `seed`. One `#[ignore]`d live-HTTPS test.
+- `varethic-browser`: 2 end-to-end tests — a dependency-free local HTTP/1.1
+  server drives `run_engine_fetch` to verify network → memory cache → disk
+  cache layering, disk persistence, and invalid-URL handling.
 - `varethic-storage`: 8 tests — history upsert/search/clear, bookmarks,
   downloads, settings, profiles, workspaces, disk HTTP cache, on-disk
   persistence.
 - `varethic-engine-core`: registry consistency test.
 - Browser binary: built and launch-tested (window stays alive; DB created on
-  first run).
+  first run); `tests/ui_smoke.ps1` passes.
+
+Total: **62 tests, all passing** (1 `#[ignore]`d live-network test excluded).
 
 ## Experimental (not asserted)
 
