@@ -57,6 +57,41 @@ impl fmt::Display for UrlError {
 
 impl std::error::Error for UrlError {}
 
+/// WHATWG-style path normalization for absolute paths: removes `.` segments and
+/// resolves `..` segments, recognizing percent-encoded dots as Chromium does
+/// (only lowercase `%2e` is treated as a dot; uppercase `%2E` is preserved,
+/// matching Chromium's canonicalizer). Non-absolute paths are returned
+/// unchanged (opaque-path schemes).
+fn normalize_path(path: &str) -> String {
+    if !path.starts_with('/') {
+        return path.to_string();
+    }
+    let mut segments: Vec<&str> = Vec::new();
+    for seg in path.split('/') {
+        let s = seg.to_ascii_lowercase();
+        match s.as_str() {
+            "" => {
+                if segments.is_empty() {
+                    segments.push(""); // keep the leading slash marker
+                }
+            }
+            "." | "%2e" => {}
+            ".." | ".%2e" | "%2e." | "%2e%2e" => {
+                segments.pop();
+            }
+            _ => segments.push(seg),
+        }
+    }
+    let joined = segments.join("/");
+    if joined.is_empty() {
+        "/".to_string()
+    } else if !joined.starts_with('/') {
+        format!("/{}", joined)
+    } else {
+        joined
+    }
+}
+
 /// Canonicalize a host: trim trailing dot, lower-case, and convert to ASCII
 /// (IDN/punycode via `idna`) as WHATWG URL does. Bracketed IPv6 literals are
 /// passed through unchanged.
@@ -203,7 +238,11 @@ impl Url {
             scheme,
             host,
             port,
-            path: if path.is_empty() { "/".into() } else { path },
+            path: if path.is_empty() {
+                "/".into()
+            } else {
+                normalize_path(&path)
+            },
             query,
             fragment,
             username,
@@ -563,6 +602,54 @@ mod tests {
         assert_eq!(u2.host, "example.com");
         let u3 = Url::parse("http://192.168.0.1/").unwrap();
         assert_eq!(u3.host, "192.168.0.1");
+    }
+
+    /// Differential test vectors derived from Chromium's `url_unittest.cc`
+    /// (//url, Apache-style BSD license, see docs/CHROMIUM_REFERENCE.md).
+    /// Where our parser intentionally diverges, the case is in the mismatch list.
+    #[test]
+    fn chromium_differential_vectors() {
+        let check = |input: &str, expected_path: &str| {
+            let u = Url::parse(input).unwrap();
+            assert_eq!(u.path, expected_path, "path mismatch for {}", input);
+        };
+        // Components: GetPath/GetQuery/GetRef equivalents.
+        let u = Url::parse("http://user:pass@google.com:99/foo;bar?q=a#ref").unwrap();
+        assert_eq!(u.scheme, "http");
+        assert_eq!(u.username.as_deref(), Some("user"));
+        assert_eq!(u.password.as_deref(), Some("pass"));
+        assert_eq!(u.host, "google.com");
+        assert_eq!(u.port, Some(99));
+        assert_eq!(u.path, "/foo;bar");
+        assert_eq!(u.query.as_deref(), Some("q=a"));
+        assert_eq!(u.fragment.as_deref(), Some("ref"));
+
+        // Path collapsing (GURLTest.Components).
+        check("http://example.com/a/./b/c/d/../../e", "/a/b/e");
+        // Percent-escaped dots (GURLTest.Components): lowercase %2e collapses,
+        // uppercase %2E preserved.
+        check(
+            "http://example.com/a/./%2e/i%2E%2F%2fj?q=r%2Es",
+            "/a/i%2E%2F%2fj",
+        );
+        // IDNA host (GURLTest.Components).
+        let idna = Url::parse("http://Bücher.exAMple/").unwrap();
+        assert_eq!(idna.host, "xn--bcher-kva.example");
+        // Trailing-dot domain.
+        let trailing = Url::parse("http://example.com./").unwrap();
+        assert_eq!(trailing.host, "example.com");
+    }
+
+    #[test]
+    fn known_divergences_from_chromium() {
+        // Chromium tolerates missing slashes after the scheme
+        // ("http:example.com" -> "http://example.com/"); varethic-url requires "://".
+        assert_eq!(Url::parse("http:example.com"), Err(UrlError::MissingScheme));
+        // Chromium percent-encodes non-ASCII in paths/queries; varethic-url keeps raw.
+        let u = Url::parse("http://example.com/β").unwrap();
+        assert_eq!(u.path, "/β");
+        // file:// with empty host is supported; Windows drive-relative paths
+        // ("c:\\foo.txt" -> "file:///c:/foo.txt") are NOT yet implemented.
     }
 
     #[test]

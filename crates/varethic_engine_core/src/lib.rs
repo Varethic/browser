@@ -30,7 +30,7 @@ pub const COMPONENT_REGISTRY: &[ComponentEntry] = &[
         name: "URL parsing / GURL / omnibox classification",
         rust_crate: Some("varethic-url"),
         status: MigrationStatus::InProgress,
-        notes: "Core parse/validate/classify + IDN/punycode + WHATWG tuple/opaque origins + IPv6/IPv4/host-kind. Full WHATWG conformance pending; checked against //url concepts (see docs/CHROMIUM_REFERENCE.md).",
+        notes: "Parse/validate/classify + IDN + WHATWG tuple/opaque origins + absolute-path dot-segment normalization + differential vectors from url_unittest.cc (divergences tracked). Full WHATWG conformance pending; checked against //url (see docs/CHROMIUM_REFERENCE.md).",
     },
     ComponentEntry {
         chromium_path: "//net",

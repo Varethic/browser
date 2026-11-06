@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.15.0] - 2026-11-06
+
+### Added
+- `varethic-url`: WHATWG-style absolute-path normalization — `.`/`..`
+  collapsing including percent-encoded dots (lowercase `%2e` collapses,
+  uppercase `%2E` preserved, matching Chromium). Differential test vectors
+  derived from Chromium's `url_unittest.cc` (`chromium_differential_vectors`)
+  plus an explicit `known_divergences_from_chromium` test documenting
+  intentional gaps (missing-slash tolerance, non-ASCII percent-encoding,
+  Windows drive-relative file paths). 17 url tests.
+
 ## [0.14.0] - 2026-11-06
 
 ### Added

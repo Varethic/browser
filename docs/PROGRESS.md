@@ -1,5 +1,12 @@
 # Progress Log
 
+## 2026-11-06 — v0.15.0
+
+Done:
+- varethic-url: absolute-path dot-segment normalization (., .., %2e variants);
+  differential test vectors hand-ported from Chromium //url's url_unittest.cc
+  with a documented divergence list. 17 url tests; 52 workspace tests pass.
+
 ## 2026-11-06 — v0.14.0
 
 Done:
