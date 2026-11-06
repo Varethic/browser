@@ -38,6 +38,7 @@ pub enum UrlError {
     MissingHost,
     InvalidPort,
     InvalidCharacter,
+    InvalidHost,
 }
 
 impl fmt::Display for UrlError {
@@ -49,11 +50,26 @@ impl fmt::Display for UrlError {
             UrlError::MissingHost => write!(f, "missing host"),
             UrlError::InvalidPort => write!(f, "invalid port"),
             UrlError::InvalidCharacter => write!(f, "invalid character in URL"),
+            UrlError::InvalidHost => write!(f, "invalid host"),
         }
     }
 }
 
 impl std::error::Error for UrlError {}
+
+/// Canonicalize a host: trim trailing dot, lower-case, and convert to ASCII
+/// (IDN/punycode via `idna`) as WHATWG URL does. Bracketed IPv6 literals are
+/// passed through unchanged.
+fn normalize_host(host: &str) -> Result<String, UrlError> {
+    let h = host.trim_end_matches('.').to_ascii_lowercase();
+    if h.starts_with('[') {
+        return Ok(h); // IPv6 literal, already validated
+    }
+    if is_ipv4(&h) {
+        return Ok(h);
+    }
+    idna::domain_to_ascii(&h).map_err(|_| UrlError::InvalidHost)
+}
 
 fn is_scheme_char(c: char, first: bool) -> bool {
     if first {
@@ -152,7 +168,7 @@ impl Url {
         if host.is_empty() {
             return Err(UrlError::MissingHost);
         }
-        let host = host.trim_end_matches('.').to_ascii_lowercase();
+        let host = normalize_host(&host)?;
 
         Ok(Url {
             scheme,
@@ -408,6 +424,16 @@ mod tests {
             }
             other => panic!("expected navigate, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn idn_host_is_punycoded() {
+        let u = Url::parse("https://bücher.de/").unwrap();
+        assert_eq!(u.host, "xn--bcher-kva.de");
+        let u2 = Url::parse("http://EXAMPLE.com./path").unwrap();
+        assert_eq!(u2.host, "example.com");
+        let u3 = Url::parse("http://192.168.0.1/").unwrap();
+        assert_eq!(u3.host, "192.168.0.1");
     }
 
     #[test]

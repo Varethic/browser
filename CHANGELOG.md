@@ -3,6 +3,22 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.8.0] - 2026-11-06
+
+### Added
+- `varethic-net`: `post()` — POST with Content-Type and body; redirects are
+  intentionally NOT followed (documented). Integration-tested against a local
+  echo server (16 net tests pass).
+- `varethic-url`: IDN/punycode host canonicalization via `idna`
+  (`xn--bcher-kva.de` for `bücher.de`), trailing-dot stripping, `InvalidHost`
+  error. 13 url tests pass.
+- `docs/CHROMIUM_REFERENCE.md`: documents the local shallow Chromium reference
+  checkout at `Varethic\chromium` (HEAD 4a5fcfa6ce, not vendored, not built).
+
+### Changed
+- Workspace version 0.8.0. README.md restored from history after the
+  accidental "bro" replacement (user request; original preserved in git).
+
 ## [0.7.0] - 2026-11-05
 
 ### Added

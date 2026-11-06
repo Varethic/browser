@@ -6,3 +6,4 @@ license.workspace = true
 description = "Rust implementation inspired by Chromium //url (GURL): parsing, canonicalization, and omnibox classification"
 
 [dependencies]
+idna = "1"

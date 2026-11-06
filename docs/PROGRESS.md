@@ -1,5 +1,18 @@
 # Progress Log
 
+## 2026-11-06 — v0.8.0
+
+Done:
+- Chromium reference checkout obtained (shallow, HEAD 4a5fcfa6ce) at
+  Varethic\chromium; see docs/CHROMIUM_REFERENCE.md. NOT built, NOT vendored.
+- varethic-net: post() with echo integration test. varethic-url: IDN/punycode
+  host canonicalization + trailing-dot strip (13 tests). Workspace: 36 tests.
+- README.md restored from git history (UTF-8) after accidental replacement.
+
+Verification:
+- `cargo test --workspace`: 36 passed, 0 failed, 1 ignored (live).
+- Launch test (v0.7.0 binary) previously verified; see TESTING.md.
+
 ## 2026-11-05 — v0.7.0
 
 Done:

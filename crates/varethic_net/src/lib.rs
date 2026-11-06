@@ -199,6 +199,61 @@ fn resolve_redirect(current: &str, location: &str) -> Result<String, NetError> {
     Ok(format!("{}/{}", path_dir, location))
 }
 
+/// POST a body to `url`. Redirects are NOT followed for POST (303 would
+/// require switching to GET; 301/302 POST-redirect semantics are ambiguous)
+/// — the response is returned as-is for the caller to decide.
+pub async fn post(
+    url: &Url,
+    content_type: &str,
+    body: Vec<u8>,
+    timeout: Duration,
+) -> Result<Response, NetError> {
+    match url.scheme.as_str() {
+        "http" | "https" => {}
+        other => return Err(NetError::UnsupportedScheme(other.to_string())),
+    }
+
+    use http_body_util::Full;
+    let client: Client<_, Full<Bytes>> =
+        Client::builder(TokioExecutor::new()).build(build_https_connector());
+
+    let req = http::Request::builder()
+        .method(http::Method::POST)
+        .uri(url.to_url_string())
+        .header(
+            http::header::USER_AGENT,
+            concat!("Varethic/", env!("CARGO_PKG_VERSION")),
+        )
+        .header(http::header::CONTENT_TYPE, content_type)
+        .body(Full::new(Bytes::from(body)))
+        .map_err(|e| NetError::Http(e.to_string()))?;
+
+    let fut = client.request(req);
+    let resp = tokio::time::timeout(timeout, fut)
+        .await
+        .map_err(|_| NetError::Timeout(timeout))?
+        .map_err(|e| NetError::Http(e.to_string()))?;
+
+    let status = resp.status().as_u16();
+    let headers = resp
+        .headers()
+        .iter()
+        .map(|(k, v)| (k.as_str().to_string(), v.to_str().unwrap_or("").to_string()))
+        .collect();
+    let body = resp
+        .into_body()
+        .collect()
+        .await
+        .map_err(|e| NetError::Http(e.to_string()))?
+        .to_bytes();
+
+    Ok(Response {
+        status,
+        headers,
+        body,
+    })
+}
+
 /// Convenience: GET a raw string URL.
 pub async fn get_str(url: &str, timeout: Duration) -> Result<Response, NetError> {
     let parsed = Url::parse(url)?;
@@ -242,6 +297,14 @@ mod tests {
                                 .header("location", "dir/final")
                                 .body(Full::new(Bytes::new()))
                                 .unwrap(),
+                            "/echo" => {
+                                let body = req.into_body().collect().await.unwrap().to_bytes();
+                                http::Response::builder()
+                                    .status(200)
+                                    .header("content-type", "text/plain")
+                                    .body(Full::new(body))
+                                    .unwrap()
+                            }
                             "/set" => http::Response::builder()
                                 .status(200)
                                 .header("set-cookie", "session=abc123; Path=/")
@@ -336,6 +399,22 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.body_string().unwrap(), "cookie: session=abc123");
+    }
+
+    #[tokio::test]
+    async fn post_echoes_body() {
+        let addr = spawn_test_server().await;
+        let url = Url::parse(&format!("http://{}/echo", addr)).unwrap();
+        let resp = post(
+            &url,
+            "text/plain",
+            b"hello-varethic".to_vec(),
+            Duration::from_secs(5),
+        )
+        .await
+        .unwrap();
+        assert_eq!(resp.status, 200);
+        assert_eq!(resp.body_string().unwrap(), "hello-varethic");
     }
 
     #[tokio::test]
