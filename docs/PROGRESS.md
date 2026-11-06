@@ -1,5 +1,16 @@
 # Progress Log
 
+## 2026-11-06 — v0.14.0
+
+Done:
+- varethic-net: SameSite=Strict/Lax enforcement (two-label site
+  approximation; cross-site blocked) and SameSite=None⇒Secure rejection at
+  store time. 27 net tests pass; 50 workspace tests pass.
+- CLAUDE.md added (agentic working notes; documents the no-fake-progress and
+  push rules).
+- Cookie tests caught two wrong host-only/Domain expectations during
+  development; corrected tests match RFC 6265 host-only semantics.
+
 ## 2026-11-06 — v0.13.0
 
 Done:

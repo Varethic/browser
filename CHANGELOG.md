@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.14.0] - 2026-11-06
+
+### Added
+- `varethic-net`: SameSite cookie enforcement — `SameSite=Strict/Lax` cookies
+  (browsers default Lax) are not sent on cross-site requests (two-label site
+  approximation, no PSL); `SameSite=None` requires `Secure` and is rejected at
+  store time otherwise. 3 new tests (27 net tests pass).
+- `CLAUDE.md`: agentic working notes — layout, build/test, docs discipline,
+  push policy, no-fake-progress rule.
+
 ## [0.13.0] - 2026-11-06
 
 ### Added

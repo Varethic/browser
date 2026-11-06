@@ -37,7 +37,7 @@ pub const COMPONENT_REGISTRY: &[ComponentEntry] = &[
         name: "Network stack",
         rust_crate: Some("varethic-net"),
         status: MigrationStatus::InProgress,
-        notes: "HTTP/1.1 GET/POST + redirects + in-memory cookie jar + in-memory response cache (Cache-Control max-age). HTTP2/disk cache pending.",
+        notes: "HTTP/1.1 GET/POST + redirects + cookie jar (SameSite enforced; two-label site approx, no PSL) + response cache. HTTP2/disk cache/PSL pending.",
     },
     ComponentEntry {
         chromium_path: "//content",

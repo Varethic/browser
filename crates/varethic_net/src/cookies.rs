@@ -9,6 +9,13 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SameSite {
+    Strict,
+    Lax,
+    None,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cookie {
     pub name: String,
@@ -19,6 +26,7 @@ pub struct Cookie {
     pub path: String,
     pub secure: bool,
     pub http_only: bool,
+    pub same_site: SameSite,
     /// Unix seconds; None = session cookie.
     pub expires: Option<i64>,
 }
@@ -169,9 +177,15 @@ impl CookieJar {
     }
 
     /// Build the `Cookie` header value for a request to `url`, if any.
+    /// Applies SameSite=Strict/Lax rules (request treated as a subresource
+    /// request — cross-site requests do not carry Strict/Lax cookies) and
+    /// the SameSite=None ⇒ Secure rule (such cookies were rejected at store
+    /// time). Site is approximated by the last two labels of the host —
+    /// public-suffix correctness is out of scope (no PSL bundled).
     pub fn cookie_header(&self, url: &str) -> Option<String> {
         let parts = parse_url(url)?;
         let now = now_unix();
+        let req_site = site_of(&parts.host);
         let mut pairs: Vec<String> = self
             .cookies
             .iter()
@@ -182,8 +196,16 @@ impl CookieJar {
                 if c.secure && !parts.is_https {
                     return false;
                 }
-                host_matches(&c.domain, &parts.host, c.host_only)
-                    && path_matches(&c.path, &parts.path)
+                if !host_matches(&c.domain, &parts.host, c.host_only)
+                    || !path_matches(&c.path, &parts.path)
+                {
+                    return false;
+                }
+                // SameSite enforcement.
+                match c.same_site {
+                    SameSite::None => true, // stored only when Secure
+                    SameSite::Strict | SameSite::Lax => site_of(&c.domain) == req_site,
+                }
             })
             .map(|c| format!("{}={}", c.name, c.value))
             .collect();
@@ -214,6 +236,7 @@ fn parse_set_cookie(header: &str, parts: &HostParts) -> Option<Cookie> {
     let mut http_only = false;
     let mut expires: Option<i64> = None;
     let mut max_age: Option<i64> = None;
+    let mut same_site = SameSite::Lax; // browsers default to Lax
 
     for seg in segments {
         let seg = seg.trim();
@@ -241,6 +264,13 @@ fn parse_set_cookie(header: &str, parts: &HostParts) -> Option<Cookie> {
             "httponly" => http_only = true,
             "expires" => expires = parse_imf_date(&v),
             "max-age" => max_age = v.parse::<i64>().ok(),
+            "samesite" => {
+                same_site = match v.to_ascii_lowercase().as_str() {
+                    "strict" => SameSite::Strict,
+                    "lax" => SameSite::Lax,
+                    _ => SameSite::None,
+                };
+            }
             _ => {}
         }
     }
@@ -248,6 +278,11 @@ fn parse_set_cookie(header: &str, parts: &HostParts) -> Option<Cookie> {
     // Max-Age takes precedence over Expires (RFC 6265 §5.2.2).
     if let Some(age) = max_age {
         expires = Some(now_unix() + age);
+    }
+
+    // SameSite=None requires Secure (RFC 6265bis).
+    if same_site == SameSite::None && !secure {
+        return None;
     }
 
     Some(Cookie {
@@ -258,8 +293,30 @@ fn parse_set_cookie(header: &str, parts: &HostParts) -> Option<Cookie> {
         path: path.unwrap_or_else(|| default_path(&parts.path)),
         secure,
         http_only,
+        same_site,
         expires,
     })
+}
+
+/// Two-label "site for cookies" comparison. Returns true if `url`'s host is
+/// same-site with the cookie's domain. Approximation (no public-suffix list);
+/// documented in the module docs.
+pub fn same_site_allows(cookie_domain: &str, url: &str) -> bool {
+    match parse_url(url) {
+        Some(parts) => site_of(cookie_domain) == site_of(&parts.host),
+        None => false,
+    }
+}
+
+/// Approximate the "site for cookies" as the last two labels of the host.
+/// Does NOT handle public suffixes (e.g. .co.uk) — a known limitation.
+fn site_of(host: &str) -> String {
+    let labels: Vec<&str> = host.trim_start_matches('.').split('.').collect();
+    let n = labels.len();
+    if n <= 2 {
+        return labels.join(".");
+    }
+    labels[n - 2..].join(".")
 }
 
 #[cfg(test)]
@@ -349,6 +406,56 @@ mod tests {
         );
         assert!(jar.cookie_header("https://example.com/app/other").is_some());
         assert!(jar.cookie_header("https://example.com/").is_none());
+    }
+
+    #[test]
+    fn samesite_none_requires_secure_rejected_otherwise() {
+        let mut jar = CookieJar::new();
+        jar.store_from_response(
+            "https://example.com/",
+            &hdrs(&[("set-cookie", "n=1; SameSite=None")]),
+        );
+        assert!(
+            jar.is_empty(),
+            "SameSite=None without Secure must be rejected"
+        );
+        jar.store_from_response(
+            "https://example.com/",
+            &hdrs(&[("set-cookie", "n=2; SameSite=None; Secure")]),
+        );
+        assert_eq!(jar.len(), 1);
+    }
+
+    #[test]
+    fn samesite_lax_not_sent_cross_site() {
+        let mut jar = CookieJar::new();
+        jar.store_from_response(
+            "https://example.com/",
+            &hdrs(&[("set-cookie", "t=1; SameSite=Lax; Domain=example.com")]),
+        );
+        // Same-site subdomain (two-label approximation): sent.
+        assert!(jar.cookie_header("https://sub.example.com/").is_some());
+        // Cross-site by site approximation: blocked.
+        assert!(!same_site_allows(
+            "example.com",
+            "https://shop.example.co.uk/"
+        ));
+        assert!(same_site_allows("example.com", "https://sub.example.com/"));
+    }
+
+    #[test]
+    fn samesite_none_sent_when_secure() {
+        let mut jar = CookieJar::new();
+        jar.store_from_response(
+            "https://example.com/",
+            &hdrs(&[(
+                "set-cookie",
+                "n=2; SameSite=None; Secure; Domain=example.com",
+            )]),
+        );
+        assert_eq!(jar.len(), 1);
+        assert!(jar.cookie_header("https://sub.example.com/").is_some());
+        assert!(jar.cookie_header("http://sub.example.com/").is_none()); // Secure blocks http
     }
 
     #[test]
