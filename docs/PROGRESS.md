@@ -1,5 +1,12 @@
 # Progress Log
 
+## 2026-11-06 — v0.18.0
+
+Done:
+- varethic-url: 12 more URLCanonHostTest.Host vectors (RTL/Bidi + large IDNA
+  set). All pass. 54 workspace tests. Caught and fixed two of my own wrong
+  Unicode literals during testing (documented in CHANGELOG).
+
 ## 2026-11-06 — v0.17.0
 
 Done:

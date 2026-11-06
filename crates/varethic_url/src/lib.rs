@@ -667,6 +667,41 @@ mod tests {
         check("GOO\u{200b}\u{2060}\u{feff}goo.com", "googoo.com");
     }
 
+    /// Second batch of host vectors from URLCanonHostTest.Host, focused on
+    /// IDNA/UTS#46 edge cases. BROKEN inputs are expected to fail parsing.
+    #[test]
+    fn chromium_host_vectors_2() {
+        let ok = |input: &str, expected: &str| {
+            let u = Url::parse(&format!("http://{}/", input));
+            match u {
+                Ok(u) => assert_eq!(u.host, expected, "vector {:?}", input),
+                Err(e) => panic!("vector {:?} failed to parse: {:?}", input, e),
+            }
+        };
+        let bad = |input: &str| {
+            assert!(
+                Url::parse(&format!("http://{}/", input)).is_err(),
+                "vector {:?} should be rejected",
+                input
+            );
+        };
+        ok("MÜNCHEN", "xn--mnchen-3ya");
+        ok("xn--mnchen-3ya", "xn--mnchen-3ya");
+        ok("\u{2132}oo", "xn--oo-3tu"); // turned capital F (U+2132) -> xn--oo-3tu
+        ok("\u{2665}ny.us", "xn--ny-s0x.us"); // ♥ny.us
+        ok("\u{20b7}.com", "xn--wzg.com"); // .com
+        ok("bc\u{23a}.com", "xn--bc-is1a.com"); // U+023A
+        ok("ab\u{ff43}.xyz", "abc.xyz"); // ab + fullwidth small c
+        ok("ab\u{1d68c}.xyz", "abc.xyz"); // ab + math monospace small c
+        ok("\u{915}\u{94d}\u{200d}\u{91c}", "xn--11bo0mv54g"); // Devanagari + ZWJ
+        ok("\u{62c}\u{627}\u{631}2", "xn--2-ymcov"); // RTL + European number
+        ok("\u{62c}\u{627}\u{631}\u{662}", "xn--mgbjq0r"); // RTL + Arabic number
+        bad("\u{62c}\u{627}\u{631}xyz"); // RTL label with L chars
+        bad("\u{62c}\u{627}\u{631}xy2"); // RTL label with L chars + EN
+        bad("\u{62c}\u{627}\u{631}xy\u{662}"); // RTL label with L chars + AN
+        bad("\u{62c}\u{627}\u{631}xy2\u{662}"); // mixed EN+AN
+    }
+
     #[test]
     fn known_divergences_from_chromium() {
         // Chromium tolerates missing slashes after the scheme

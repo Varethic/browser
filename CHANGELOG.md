@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.18.0] - 2026-11-06
+
+### Added
+- `varethic-url`: second batch of differential host vectors from Chromium's
+  `URLCanonHostTest.Host` — 12 IDNA/UTS#46 cases incl. MÜNCHEN→`xn--mnchen-3ya`,
+  turned-F→`xn--oo-3tu`, ♥♥→`xn--ny-s0x.us`, ₠→`xn--wzg.com`, U+023A→`xn--bc-is1a.com`,
+  fullwidth/math-mono C→`abc.xyz`, Devanagari+ZWJ→`xn--11bo0mv54g`, RTL+EN→
+  `xn--2-ymcov`, RTL+AN→`xn--mgbjq0r`, and 4 Bidi-failure inputs expected to
+  reject. Two of my Unicode literals were initially wrong (U+210C vs U+2132,
+  U+037A vs U+023A); fixed and all pass. 19 url tests.
+
 ## [0.17.0] - 2026-11-06
 
 ### Added
