@@ -6,7 +6,9 @@
 //! and connection pooling beyond hyper's defaults are NOT yet implemented.
 //! Do not claim //net parity.
 
+pub mod cache;
 pub mod cookies;
+pub use cache::HttpCache;
 pub use cookies::CookieJar;
 
 use std::time::Duration;
@@ -254,6 +256,22 @@ pub async fn post(
     })
 }
 
+/// GET with an in-memory cache: serve from `cache` when a fresh entry exists,
+/// otherwise perform the request and store cacheable responses.
+pub async fn get_cached(
+    url: &Url,
+    timeout: Duration,
+    cache: &mut HttpCache,
+) -> Result<Response, NetError> {
+    let key = url.to_url_string();
+    if let Some(hit) = cache.get(&key) {
+        return Ok(hit);
+    }
+    let resp = get(url, timeout).await?;
+    cache.store(&key, &resp);
+    Ok(resp)
+}
+
 /// Convenience: GET a raw string URL.
 pub async fn get_str(url: &str, timeout: Duration) -> Result<Response, NetError> {
     let parsed = Url::parse(url)?;
@@ -399,6 +417,63 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(resp.body_string().unwrap(), "cookie: session=abc123");
+    }
+
+    async fn spawn_counting_server() -> (SocketAddr, std::sync::Arc<std::sync::atomic::AtomicUsize>)
+    {
+        use std::sync::atomic::Ordering;
+        let counter = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let ctr = counter.clone();
+        tokio::spawn(async move {
+            loop {
+                let (stream, _) = listener.accept().await.unwrap();
+                let io = TokioIo::new(stream);
+                let ctr = ctr.clone();
+                tokio::spawn(async move {
+                    let svc = service_fn(move |_req| {
+                        let ctr = ctr.clone();
+                        async move {
+                            ctr.fetch_add(1, Ordering::SeqCst);
+                            Ok::<_, Infallible>(
+                                http::Response::builder()
+                                    .status(200)
+                                    .header("cache-control", "max-age=60")
+                                    .body(Full::new(Bytes::from_static(b"cached-response-body")))
+                                    .unwrap(),
+                            )
+                        }
+                    });
+                    let _ = hyper::server::conn::http1::Builder::new()
+                        .serve_connection(io, svc)
+                        .await;
+                });
+            }
+        });
+        (addr, counter)
+    }
+
+    #[tokio::test]
+    async fn get_cached_serves_second_request_from_cache() {
+        use std::sync::atomic::Ordering;
+        let (addr, counter) = spawn_counting_server().await;
+        let url = Url::parse(&format!("http://{}/cached", addr)).unwrap();
+        let mut cache = HttpCache::new(8);
+        let r1 = get_cached(&url, Duration::from_secs(5), &mut cache)
+            .await
+            .unwrap();
+        let r2 = get_cached(&url, Duration::from_secs(5), &mut cache)
+            .await
+            .unwrap();
+        assert_eq!(r1.body_string().unwrap(), "cached-response-body");
+        assert_eq!(r2.body_string().unwrap(), "cached-response-body");
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "second response must come from cache"
+        );
+        assert_eq!(cache.hits(), 1);
     }
 
     #[tokio::test]

@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.12.0] - 2026-11-06
+
+### Added
+- `varethic-net`: in-memory HTTP response cache (`HttpCache`) honoring
+  `Cache-Control` `no-store` / `no-cache` / `must-revalidate` / `private` /
+  `max-age`; arbitrary bounded eviction; hit/miss counters. `get_cached()`
+  performs the request on miss, stores fresh 200s, and serves hits without
+  network. 7 cache unit tests + 1 integration test proving the second request
+  bypasses the server (hit counter stays 1). Not a disk cache; no Vary/ETag yet.
+
 ## [0.11.0] - 2026-11-06
 
 ### Added

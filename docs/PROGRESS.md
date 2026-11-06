@@ -1,5 +1,12 @@
 # Progress Log
 
+## 2026-11-06 — v0.12.0
+
+Done:
+- varethic-net: HttpCache (Cache-Control aware, bounded in-memory) +
+  get_cached; counting-server test proves second request served from cache.
+  24 net tests pass; 46 workspace tests pass.
+
 ## 2026-11-06 — v0.11.0
 
 Done:
