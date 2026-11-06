@@ -3,6 +3,15 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.16.0] - 2026-11-06
+
+### Added
+- `varethic-url`: differential host canonicalization vectors from Chromium's
+  `URLCanonHostTest.Host` — case folding, fullwidth (nameprep), U+3002 as dot,
+  IDN (`你好你好`→`xn--6qqa088eba`), ß→`xn--fuball-cta.de`, final sigma→
+  `xn--wxaijb9b`, zero-width/BOM stripping. All pass via the `idna` (UTS #46)
+  crate, matching ICU expectations on these cases. 18 url tests.
+
 ## [0.15.0] - 2026-11-06
 
 ### Added

@@ -640,6 +640,33 @@ mod tests {
         assert_eq!(trailing.host, "example.com");
     }
 
+    /// Host canonicalization vectors from Chromium's `url_canon_unittest.cc`
+    /// (URLCanonHostTest.Host), applicable subset — name-prep/IDNA behavior
+    /// comes from the `idna` crate (UTS #46).
+    #[test]
+    fn chromium_host_vectors() {
+        let check = |input: &str, expected: &str| {
+            let u = Url::parse(&format!("http://{}/", input));
+            match u {
+                Ok(u) => assert_eq!(u.host, expected, "host mismatch for {:?}", input),
+                Err(e) => panic!("parse failed for {:?}: {:?}", input, e),
+            }
+        };
+        check("GoOgLe.CoM", "google.com");
+        // Fullwidth G and o -> "go.com" (nameprep lowercases + narrows)
+        check("\u{ff27}\u{ff4f}.com", "go.com");
+        // Ideographic full stop U+3002 is treated as a dot.
+        check("www.foo\u{3002}bar.com", "www.foo.bar.com");
+        // 你好你好 -> xn--6qqa088eba
+        check("\u{4f60}\u{597d}\u{4f60}\u{597d}", "xn--6qqa088eba");
+        // Sharp-s: non-transitional UTS#46 keeps ß as xn--fuball-cta.de
+        check("fu\u{00df}ball.de", "xn--fuball-cta.de");
+        // Final sigma: xn--wxaijb9b
+        check("\u{3c3}\u{3cc}\u{3bb}\u{3bf}\u{3c2}", "xn--wxaijb9b");
+        // Zero-width / BOM chars are stripped by nameprep
+        check("GOO\u{200b}\u{2060}\u{feff}goo.com", "googoo.com");
+    }
+
     #[test]
     fn known_divergences_from_chromium() {
         // Chromium tolerates missing slashes after the scheme

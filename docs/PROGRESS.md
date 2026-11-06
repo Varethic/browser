@@ -1,5 +1,12 @@
 # Progress Log
 
+## 2026-11-06 — v0.16.0
+
+Done:
+- varethic-url: differential host vectors from Chromium //url's
+  URLCanonHostTest.Host (7 cases: case folding, fullwidth nameprep, U+3002 dot,
+  IDN, ß, final sigma, zero-width strip). All pass. 53 workspace tests.
+
 ## 2026-11-06 — v0.15.0
 
 Done:
