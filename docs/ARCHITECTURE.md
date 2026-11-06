@@ -47,18 +47,18 @@ The browser has two network stacks, deliberately:
                | uses
 +--------------v---------------------------------------+
 | varethic_engine_core (registry, shared types)        |
-+--------------+------------------+--------------------+
-               | uses             | uses
-+--------------v-------+  +-------v------------------+
-| varethic_url         |  | varethic_net             |
-|  //url successor     |  |  //net successor         |
-+----------------------+  |  cache w/ revalidation   |
-                          +-------+------------------+
-                                  | persists to
-                          +-------v------------------+
-                          | varethic_storage         |
-                          |  SQLite, disk cache      |
-                          +--------------------------+
++----+------------------+-------------------+---------+
+     | uses             | uses              | uses
++----v----------+  +----v--------------+  +-v-----------------+
+| varethic_url  |  | varethic_net      |  | varethic_dom      |
+|  //url        |  |  //net            |  |  HTML tokenizer + |
+|  successor    |  |  cache/revalidate |  |  tree constructor |
++---------------+  +----+--------------+  +-------------------+
+                        | persists to        //blink html/parser
+                  +-----v---------------+
+                  | varethic_storage    |
+                  |  SQLite, disk cache |
+                  +---------------------+
 ```
 
 ## Key decisions

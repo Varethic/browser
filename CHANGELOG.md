@@ -3,6 +3,34 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.22.0] - 2026-11-06
+
+### Added
+- **`varethic-dom`: the first native (non-WebView2) engine component.** A
+  safe-Rust HTML5 tokenizer + simplified tree constructor, the early successor
+  to Blink's HTML parser:
+  - tokenizer: data, tag open/name, attributes (double/single/unquoted/boolean),
+    self-closing, comments, doctype, bogus comments, RAWTEXT/RCDATA
+    (`script`/`style`/`title`/`textarea`/...), character references
+    (numeric + ~40 named).
+  - tree construction: DOM arena, void elements, implied end tags for
+    `li`/`p`/`dt`/`dd`/`option`, block elements closing open `p`, text merging,
+    comment/doctype nodes; `to_html()` normalizing serializer plus
+    `element_names`/`find`/`text_content` queries.
+  - 27 unit tests including a `divergences_from_full_html5` test that pins the
+    known gaps (no `html`/`head`/`body` synthesis, no adoption agency).
+- `varethic_browser`: the Fetch panel now parses fetched HTML with
+  `varethic-dom` and displays a tree summary (element count / node count /
+  first tags), so the native parser runs on real bytes inside the product.
+  +1 end-to-end test asserting the summary appears.
+- `COMPONENT_REGISTRY`: new `//third_party/blink/renderer/core/html/parser`
+  entry, `InProgress`, `varethic-dom`.
+
+### Notes
+- `varethic-dom` is **not used for rendering**; WebView2 still renders all
+  pages. It is exercised for parsing/summary only. Nothing is marked
+  `Migrated`.
+
 ## [0.21.0] - 2026-11-06
 
 ### Added

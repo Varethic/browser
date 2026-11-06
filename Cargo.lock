@@ -2627,11 +2627,12 @@ checksum = "3a3b425286980a367278453f3b6d28cdcb134b574e5a35824a6ff5eebad50bb6"
 
 [[package]]
 name = "varethic-browser"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "serde_json",
  "tao",
  "tokio",
+ "varethic-dom",
  "varethic-engine-core",
  "varethic-net",
  "varethic-storage",
@@ -2640,15 +2641,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "varethic-dom"
+version = "0.22.0"
+
+[[package]]
 name = "varethic-engine-core"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "varethic-url",
 ]
 
 [[package]]
 name = "varethic-net"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "bytes",
  "http",
@@ -2663,7 +2668,7 @@ dependencies = [
 
 [[package]]
 name = "varethic-storage"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "rusqlite",
  "serde_json",
@@ -2673,7 +2678,7 @@ dependencies = [
 
 [[package]]
 name = "varethic-url"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "idna",
 ]

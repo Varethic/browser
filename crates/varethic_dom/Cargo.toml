@@ -1,0 +1,8 @@
+[package]
+name = "varethic-dom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Varethic DOM: safe-Rust HTML5 tokenizer + simplified tree construction (early successor to Blink's HTML parser)"
+
+[dependencies]

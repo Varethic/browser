@@ -1,5 +1,17 @@
 # Progress Log
 
+## 2026-11-06 — v0.22.0
+
+Done:
+- New native engine crate `varethic-dom`: safe-Rust HTML5 tokenizer +
+  simplified tree constructor (27 tests, incl. a divergences test pinning
+  known gaps). Registered in COMPONENT_REGISTRY as InProgress
+  (`//third_party/blink/renderer/core/html/parser`).
+- Fetch panel now parses fetched HTML with varethic-dom and shows a tree
+  summary; +1 browser E2E test. 90 workspace tests pass; ui_smoke passes.
+- First component that is genuinely NOT delegated to WebView2 (parse/tree
+  only; rendering still WebView2). Nothing marked Migrated.
+
 ## 2026-11-06 — v0.21.0
 
 Done:

@@ -1,25 +1,30 @@
 # Testing
 
-## Current (v0.21.0)
+## Current (v0.22.0)
 
 ```powershell
 cargo test --workspace
 ```
 
-62 tests, all passing (1 `#[ignore]`d live-network test excluded):
+90 tests, all passing (1 `#[ignore]`d live-network test excluded):
 
 - `varethic-url`: 19 tests — parsing/canonicalization, ports, userinfo,
   percent-encoding, IDN/UTS #46, WHATWG origins, path dot-segment
   normalization, omnibox navigate-vs-search classification, plus differential
   vectors ported from Chromium's `url_unittest.cc` / `url_canon_unittest.cc`
   and a documented divergences test.
+- `varethic-dom`: 27 tests — HTML5 tokenizer (tags/attributes/comments/doctype/
+  RAWTEXT/RCDATA/char refs) and tree construction (nesting, void elements,
+  implied end tags, entities, serializer round-trips) plus a
+  `divergences_from_full_html5` test that pins the known gaps.
 - `varethic-net`: 32 tests — local hyper servers exercise GET, absolute and
   relative redirects, redirect-limit errors, cookies (incl. SameSite), POST
   echo, scheme rejection, timeout, cache hits, ETag/Last-Modified revalidation
   with a 304, and `seed`. One `#[ignore]`d live-HTTPS test.
-- `varethic-browser`: 2 end-to-end tests — a dependency-free local HTTP/1.1
+- `varethic-browser`: 3 end-to-end tests — a dependency-free local HTTP/1.1
   server drives `run_engine_fetch` to verify network → memory cache → disk
-  cache layering, disk persistence, and invalid-URL handling.
+  cache layering, disk persistence, invalid-URL handling, and `varethic-dom`
+  parsing of the fetched HTML.
 - `varethic-storage`: 8 tests — history upsert/search/clear, bookmarks,
   downloads, settings, profiles, workspaces, disk HTTP cache, on-disk
   persistence.
@@ -27,7 +32,7 @@ cargo test --workspace
 - Browser binary: built and launch-tested (window stays alive; DB created on
   first run); `tests/ui_smoke.ps1` passes.
 
-Total: **62 tests, all passing** (1 `#[ignore]`d live-network test excluded).
+Total: **90 tests, all passing** (1 `#[ignore]`d live-network test excluded).
 
 ## Experimental (not asserted)
 

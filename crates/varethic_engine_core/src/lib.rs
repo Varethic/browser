@@ -40,6 +40,13 @@ pub const COMPONENT_REGISTRY: &[ComponentEntry] = &[
         notes: "HTTP/1.1 GET/POST + redirects + cookie jar (SameSite enforced; two-label site approx, no PSL) + response cache with ETag/Last-Modified revalidation (304). Now serves the shell's Varethic Fetch panel; normal page loads still use WebView2. HTTP2/proxy pending.",
     },
     ComponentEntry {
+        chromium_path: "//third_party/blink/renderer/core/html/parser",
+        name: "HTML tokenizer + tree construction",
+        rust_crate: Some("varethic-dom"),
+        status: MigrationStatus::InProgress,
+        notes: "Safe-Rust WHATWG-subset tokenizer (tags/attributes/comments/doctype/RAWTEXT/RCDATA/char refs) + simplified tree construction (void elements, implied end tags li/p/dt/dd/option). No insertion-mode machinery, adoption agency, foster parenting, or html/head/body synthesis yet. Parses fetched HTML in the shell's Fetch panel; not used for rendering.",
+    },
+    ComponentEntry {
         chromium_path: "//content",
         name: "Content / navigation",
         rust_crate: None,

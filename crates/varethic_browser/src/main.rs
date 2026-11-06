@@ -514,7 +514,7 @@ fn fetch_result_html(
     } else {
         ""
     };
-    format!(
+    let mut out = format!(
         "<div class='meta'>source: {} &middot; status {} &middot; {} bytes{}</div>\
          <pre class='body'>{}{}</pre>",
         esc_html(source),
@@ -527,7 +527,40 @@ fn fetch_result_html(
         },
         esc_html(&preview),
         truncated
-    )
+    );
+    // Parse the fetched HTML with the native Rust parser (varethic-dom). This
+    // is a tree summary only: the DOM is not rendered.
+    let ct_lower = content_type.to_ascii_lowercase();
+    if ct_lower.contains("html")
+        || text
+            .trim_start()
+            .to_ascii_lowercase()
+            .starts_with("<!doctype")
+    {
+        if let Some(dom) = dom_summary_html(&text) {
+            out.push_str(&format!("<div class='meta'>{dom}</div>"));
+        }
+    }
+    out
+}
+
+/// Summarise an HTML document as parsed by `varethic-dom`, for display in the
+/// Fetch panel. Exercises the migrated HTML parser on real fetched bytes.
+fn dom_summary_html(html: &str) -> Option<String> {
+    let dom = varethic_dom::Dom::parse(html);
+    let names = dom.element_names();
+    if names.is_empty() {
+        return None;
+    }
+    let outline: Vec<&str> = names.iter().take(200).map(|s| s.as_str()).collect();
+    let extra = if names.len() > 200 { " ..." } else { "" };
+    Some(format!(
+        "varethic-dom (native Rust parser): parsed {} elements / {} nodes &middot; first tags: <code>{}{}</code>",
+        names.len(),
+        dom.node_count(),
+        esc_html(&outline.join(" ")),
+        extra
+    ))
 }
 
 /// Build the fetch panel webview. `result` is a pre-rendered HTML fragment.
@@ -1459,7 +1492,7 @@ mod tests {
                 let mut buf = [0u8; 2048];
                 let _ = s.read(&mut buf);
                 let resp = format!(
-                    "HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\
+                    "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\
                      Cache-Control: max-age=60\r\nContent-Length: {}\r\n\
                      Connection: close\r\n\r\n{}",
                     body.len(),
@@ -1474,7 +1507,7 @@ mod tests {
 
     #[test]
     fn engine_fetch_network_then_memory_then_disk_cache() {
-        let addr = spawn_tiny_server("engine-fetch-body");
+        let addr = spawn_tiny_server("<html><body><p>engine-fetch-body</p></body></html>");
         let store = Arc::new(Mutex::new(Store::open_in_memory().unwrap()));
         let cache = Arc::new(Mutex::new(HttpCache::new(8)));
         let rt = Arc::new(tokio::runtime::Runtime::new().unwrap());
@@ -1484,6 +1517,9 @@ mod tests {
         let html1 = run_engine_fetch(&url, store.clone(), cache.clone(), rt.clone());
         assert!(html1.contains("engine-fetch-body"), "html1={html1}");
         assert!(html1.contains("source: network"), "html1={html1}");
+        // The native Rust HTML parser (varethic-dom) summarises the response.
+        assert!(html1.contains("varethic-dom"), "html1={html1}");
+        assert!(html1.contains("&lt;p&gt;"), "html1={html1}");
 
         // 2. Second fetch: served from the in-memory cache (no new request).
         let html2 = run_engine_fetch(&url, store.clone(), cache.clone(), rt.clone());
@@ -1512,5 +1548,16 @@ mod tests {
             html.contains("fetch failed") || html.contains("invalid URL"),
             "html={html}"
         );
+    }
+
+    #[test]
+    fn dom_summary_parses_html() {
+        let s =
+            dom_summary_html("<html><head><title>t</title></head><body><p>hi</p></body></html>")
+                .expect("non-empty document");
+        assert!(s.contains("varethic-dom"), "s={s}");
+        assert!(s.contains("html head title body p"), "s={s}");
+        // Non-HTML / empty input yields no summary.
+        assert!(dom_summary_html("").is_none());
     }
 }
