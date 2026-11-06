@@ -3,6 +3,16 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.10.0] - 2026-11-06
+
+### Added
+- `varethic-url`: WHATWG `Origin` — tuple origins for http/https/ws/wss/ftp
+  (default ports 80/443/21 filled in), opaque otherwise; `serialize()` and
+  `is_same_origin()` (opaque origins never same-origin). `file:` URLs now
+  parse with empty host per the file-URL model. 15 tests.
+- Chromium //v8 submodule fetched (`f6b7d954`) into the reference checkout;
+  `third_party/blink` is in-tree. Study notes updated.
+
 ## [0.9.0] - 2026-11-06
 
 ### Added

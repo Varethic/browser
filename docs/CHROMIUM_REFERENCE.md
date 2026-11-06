@@ -12,11 +12,13 @@ code is NOT vendored into it).
   into this repository without retaining its license headers and attribution.
 - Build status: NOT built. Building Chromium requires depot_tools, ~100 GB
   and hours; the disk now has the room but the build has not been run.
-- The GitHub mirror uses git submodules for some third_party trees and
-  internal-only components (e.g. `chrome/browser/resources/preinstalled_web_apps/internal`);
-  those are absent here and are not needed for study. `//v8` is also a git
-  submodule and is NOT fetched (would be `git submodule update --init v8`;
-  ~2 GB additional). `//url`, `//net`, `//services`, `//storage`, `//sql`,
-  `//sandbox`, `//mojo`, `//gpu` are in-tree and present.
+- //url origin model studied: Chromium `url::Origin` (see `origin.h`) computes
+  tuple origins for special schemes (http/https/ws/wss/ftp, default ports)
+  with opaque origins elsewhere; varethic-url now implements the same tuples
+  (v0.10.0). Chromium itself binds this via cxx shims, not a native Rust impl.
+- Submodule status (2026-11-06): `//v8` fetched (`git submodule update --init
+  --depth 1 v8`, HEAD `f6b7d954`); `third_party/blink` is in-tree (not a
+  submodule); some third_party and `chrome/.../internal` trees remain absent
+  and are unneeded for study.
 - If the checkout is missing or stale, re-create with:
   `git clone --depth 1 https://github.com/chromium/chromium.git chromium`

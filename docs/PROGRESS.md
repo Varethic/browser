@@ -1,5 +1,15 @@
 # Progress Log
 
+## 2026-11-06 — v0.10.0
+
+Done:
+- varethic-url: WHATWG Origin (tuple for http/https/ws/wss/ftp w/ default
+  ports, opaque otherwise; serialize() + is_same_origin()); file: URLs parse
+  with empty host. 15 url tests pass; 38 workspace tests pass.
+- Chromium //v8 submodule fetched (f6b7d954); blink in-tree. Study notes in
+  CHROMIUM_REFERENCE.md. //url Origin model implemented to match special
+  scheme rules.
+
 ## 2026-11-06 — v0.9.0
 
 Done:

@@ -166,10 +166,39 @@ impl Url {
         };
 
         if host.is_empty() {
-            return Err(UrlError::MissingHost);
+            if scheme != "file" {
+                return Err(UrlError::MissingHost);
+            }
+            // file:///path — WHATWG file URLs have an empty host.
+        } else {
+            let host = normalize_host(&host)?;
+            return Self::finish(
+                scheme, host, port, path, query, fragment, username, password,
+            );
         }
-        let host = normalize_host(&host)?;
+        Self::finish(
+            scheme,
+            String::new(),
+            port,
+            path,
+            query,
+            fragment,
+            username,
+            password,
+        )
+    }
 
+    #[allow(clippy::too_many_arguments)]
+    fn finish(
+        scheme: String,
+        host: String,
+        port: Option<u16>,
+        path: String,
+        query: Option<String>,
+        fragment: Option<String>,
+        username: Option<String>,
+        password: Option<String>,
+    ) -> Result<Url, UrlError> {
         Ok(Url {
             scheme,
             host,
@@ -247,6 +276,26 @@ pub fn is_ipv4(s: &str) -> bool {
 }
 
 impl Url {
+    /// Compute the WHATWG origin of this URL. Tuple origins for
+    /// http/https/ws/wss/ftp (default port filled in when absent);
+    /// everything else is opaque.
+    pub fn origin(&self) -> Origin {
+        let default = match self.scheme.as_str() {
+            "http" | "ws" => Some(80),
+            "https" | "wss" => Some(443),
+            "ftp" => Some(21),
+            _ => None,
+        };
+        match default {
+            Some(d) => Origin::Tuple {
+                scheme: self.scheme.clone(),
+                host: self.host.clone(),
+                port: Some(self.port.unwrap_or(d)),
+            },
+            None => Origin::Opaque,
+        }
+    }
+
     /// Classify the host: IPv4 literal, [IPv6] literal, localhost, or domain.
     pub fn host_kind(&self) -> HostKind {
         let h = self.host.trim_start_matches('[').trim_end_matches(']');
@@ -258,6 +307,59 @@ impl Url {
             HostKind::Localhost
         } else {
             HostKind::Domain
+        }
+    }
+}
+
+/// An origin per the WHATWG HTML Standard, as far as varethic-url implements
+/// it: a tuple (scheme, host, port) for potentially-tuple schemes, else an
+/// opaque origin. Cross-process isolation and the opaque-origin nonce are
+/// out of scope.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Origin {
+    Opaque,
+    Tuple {
+        scheme: String,
+        host: String,
+        port: Option<u16>,
+    },
+}
+
+impl Origin {
+    /// Serialize like WHATWG `Origin.prototype.toString()` for tuple origins
+    /// (`scheme://host[:port]`); opaque origins serialize as `"null"`.
+    pub fn serialize(&self) -> String {
+        match self {
+            Origin::Opaque => "null".to_string(),
+            Origin::Tuple { scheme, host, port } => {
+                let mut s = format!("{}://{}", scheme, host);
+                if let Some(p) = port {
+                    s.push(':');
+                    s.push_str(&p.to_string());
+                }
+                s
+            }
+        }
+    }
+
+    /// Same absolute origin (tuple components equal). Opaque == Opaque is false
+    /// (opaque origins are never same-origin with each other), matching
+    /// WHATWG's "same origin" definition.
+    pub fn is_same_origin(&self, other: &Origin) -> bool {
+        match (self, other) {
+            (
+                Origin::Tuple {
+                    scheme: s1,
+                    host: h1,
+                    port: p1,
+                },
+                Origin::Tuple {
+                    scheme: s2,
+                    host: h2,
+                    port: p2,
+                },
+            ) => s1 == s2 && h1 == h2 && p1 == p2,
+            _ => false,
         }
     }
 }
@@ -424,6 +526,33 @@ mod tests {
             }
             other => panic!("expected navigate, got {:?}", other),
         }
+    }
+
+    #[test]
+    fn origin_tuple_for_http() {
+        let u = Url::parse("https://example.com/path?q=1").unwrap();
+        assert_eq!(u.origin().serialize(), "https://example.com:443");
+        let u2 = Url::parse("https://example.com:8443/").unwrap();
+        assert_eq!(u2.origin().serialize(), "https://example.com:8443");
+        let u3 = Url::parse("http://example.com/").unwrap();
+        assert_eq!(u3.origin().serialize(), "http://example.com:80");
+        assert!(u
+            .origin()
+            .is_same_origin(&Url::parse("https://example.com/").unwrap().origin()));
+        assert!(!u
+            .origin()
+            .is_same_origin(&Url::parse("https://example.com:8443/").unwrap().origin()));
+        assert!(!u
+            .origin()
+            .is_same_origin(&Url::parse("http://example.com/").unwrap().origin()));
+    }
+
+    #[test]
+    fn origin_opaque_for_file() {
+        let u = Url::parse("file:///tmp/x").unwrap();
+        assert_eq!(u.origin(), Origin::Opaque);
+        assert_eq!(u.origin().serialize(), "null");
+        assert!(!u.origin().is_same_origin(&u.origin()));
     }
 
     #[test]
