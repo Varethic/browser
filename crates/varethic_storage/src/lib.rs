@@ -107,6 +107,17 @@ impl Store {
             CREATE TABLE IF NOT EXISTS profiles (
                 name TEXT PRIMARY KEY,
                 created_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS workspaces (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                updated_at INTEGER NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS workspace_tabs (
+                workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                position INTEGER NOT NULL,
+                url TEXT NOT NULL,
+                title TEXT NOT NULL DEFAULT ''
             );",
         )?;
         Ok(())
@@ -221,6 +232,68 @@ impl Store {
             .execute("DELETE FROM profiles WHERE name = ?1", params![name])?)
     }
 
+    // ---- workspaces ----
+
+    /// Create or replace the tab set of a named workspace. Returns its id.
+    pub fn save_workspace(
+        &self,
+        name: &str,
+        tabs: &[(String, String)],
+    ) -> Result<i64, StorageError> {
+        self.conn.execute(
+            "INSERT INTO workspaces(name, updated_at) VALUES (?1, ?2)
+             ON CONFLICT(name) DO UPDATE SET updated_at = excluded.updated_at",
+            params![name, now_unix()],
+        )?;
+        let id: i64 = self.conn.query_row(
+            "SELECT id FROM workspaces WHERE name = ?1",
+            params![name],
+            |r| r.get(0),
+        )?;
+        self.conn.execute(
+            "DELETE FROM workspace_tabs WHERE workspace_id = ?1",
+            params![id],
+        )?;
+        for (pos, (url, title)) in tabs.iter().enumerate() {
+            self.conn.execute(
+                "INSERT INTO workspace_tabs(workspace_id, position, url, title)
+                 VALUES (?1, ?2, ?3, ?4)",
+                params![id, pos as i64, url, title],
+            )?;
+        }
+        Ok(id)
+    }
+
+    pub fn list_workspaces(&self) -> Result<Vec<(i64, String)>, StorageError> {
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, name FROM workspaces ORDER BY updated_at DESC")?;
+        let rows = stmt
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn load_workspace(&self, id: i64) -> Result<Vec<(String, String)>, StorageError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT url, title FROM workspace_tabs WHERE workspace_id = ?1 ORDER BY position ASC",
+        )?;
+        let rows = stmt
+            .query_map(params![id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn delete_workspace(&self, id: i64) -> Result<usize, StorageError> {
+        self.conn.execute(
+            "DELETE FROM workspace_tabs WHERE workspace_id = ?1",
+            params![id],
+        )?;
+        Ok(self
+            .conn
+            .execute("DELETE FROM workspaces WHERE id = ?1", params![id])?)
+    }
+
     // ---- settings ----
 
     pub fn get_setting(&self, key: &str) -> Result<Option<String>, StorageError> {
@@ -328,6 +401,32 @@ mod tests {
         assert_eq!(s.list_profiles().unwrap(), vec!["Default", "Work"]);
         s.delete_profile("Work").unwrap();
         assert_eq!(s.list_profiles().unwrap(), vec!["Default"]);
+    }
+
+    #[test]
+    fn workspaces_save_load_replace_delete() {
+        let s = Store::open_in_memory().unwrap();
+        let id = s
+            .save_workspace(
+                "Research",
+                &[
+                    ("https://a.com".into(), "A".into()),
+                    ("https://b.com".into(), "B".into()),
+                ],
+            )
+            .unwrap();
+        let list = s.list_workspaces().unwrap();
+        assert_eq!(list, vec![(id, "Research".to_string())]);
+        let tabs = s.load_workspace(id).unwrap();
+        assert_eq!(tabs.len(), 2);
+        assert_eq!(tabs[0].0, "https://a.com");
+        // Save again replaces the tab set.
+        s.save_workspace("Research", &[("https://c.com".into(), "C".into())])
+            .unwrap();
+        let tabs = s.load_workspace(id).unwrap();
+        assert_eq!(tabs, vec![("https://c.com".to_string(), "C".to_string())]);
+        s.delete_workspace(id).unwrap();
+        assert!(s.list_workspaces().unwrap().is_empty());
     }
 
     #[test]

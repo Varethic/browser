@@ -34,6 +34,9 @@ enum UserEvent {
     ToggleVerticalTabs,
     ToggleSplitView,
     SetSplitUrl(String),
+    SaveWorkspace(String),
+    OpenWorkspace(i64),
+    DeleteWorkspace(i64),
     SetSearch(String),
     NewPrivateTab,
     SetProfile(String),
@@ -50,6 +53,7 @@ enum PanelKind {
     Settings,
     Profiles,
     Split,
+    Workspaces,
 }
 
 struct Tab {
@@ -189,6 +193,41 @@ function saveSplit() {{
     )
 }
 
+fn workspaces_panel_html(workspaces_body: &str) -> String {
+    format!(
+        r#"<!DOCTYPE html><html><head><meta charset="utf-8"><style>
+:root {{ color-scheme: dark; }}
+* {{ font-family: 'Segoe UI', sans-serif; margin: 0; }}
+body {{ background: #1b1d22; color: #e6e6e6; }}
+header {{ display: flex; justify-content: space-between; align-items: center; padding: 10px 12px; background: #14151a; }}
+h1 {{ font-size: 14px; }}
+button {{ background: transparent; border: none; color: #ddd; cursor: pointer; }}
+.settings {{ padding: 14px; display: flex; flex-direction: column; gap: 8px; }}
+label {{ font-size: 12px; }}
+input {{ height: 30px; background: #14151a; color: #eee; border: 1px solid #3d4049; border-radius: 6px; padding: 0 10px; font-size: 12px; }}
+.save {{ background: #4f8cff; color: #fff; border-radius: 6px; height: 30px; font-size: 12px; }}
+.row {{ display: flex; justify-content: space-between; align-items: center; padding: 8px 12px; border-bottom: 1px solid #2a2c33; gap: 8px; }}
+.t {{ font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }}
+.actions {{ display: flex; gap: 6px; }}
+.mini {{ font-size: 11px; border-radius: 4px; padding: 4px 8px; }}
+.open {{ background: #2e4a33; color: #a4e3b2; }}
+.del {{ background: #4a2e2e; color: #e3a4a4; }}
+</style></head><body>
+<header><h1>Workspaces</h1><button onclick="window.ipc.postMessage(JSON.stringify({{type:'close-panel'}}))">&times;</button></header>
+{workspaces_body}
+<script>
+function saveWs() {{
+  const v = document.getElementById('wsname').value.trim();
+  if (v) window.ipc.postMessage(JSON.stringify({{type:'save-workspace', name: v}}));
+}}
+function openWs(id) {{ window.ipc.postMessage(JSON.stringify({{type:'open-workspace', id: id}})); }}
+function delWs(id) {{ window.ipc.postMessage(JSON.stringify({{type:'delete-workspace', id: id}})); }}
+</script>
+</body></html>"#,
+        workspaces_body = workspaces_body
+    )
+}
+
 fn settings_panel_html(settings_body: &str) -> String {
     format!(
         r#"<!DOCTYPE html><html><head><meta charset="utf-8"><style>
@@ -324,6 +363,31 @@ fn panel_html(kind: PanelKind, store: &Arc<Mutex<Store>>, registry: &Arc<Mutex<S
             );
             return split_panel_html(&body);
         }
+        PanelKind::Workspaces => {
+            let workspaces = store
+                .lock()
+                .map(|s| s.list_workspaces())
+                .unwrap_or_else(|_| Ok(vec![]))
+                .unwrap_or_default();
+            let rows: String = workspaces
+                .iter()
+                .map(|(id, name)| {
+                    format!(
+                        "<div class='row'><div class='t'>{}</div><div class='actions'><button class='mini open' onclick='openWs({})'>Open</button><button class='mini del' onclick='delWs({})'>Delete</button></div></div>",
+                        esc_html(name),
+                        id,
+                        id
+                    )
+                })
+                .collect();
+            let body = format!(
+                "<div class='settings'><label for='wsname'>Save current tabs as workspace</label>
+                 <input id='wsname' type='text' placeholder='e.g. Research' maxlength='64' spellcheck='false'>
+                 <button class='save' onclick='saveWs()'>Save</button></div>
+                 <div class='rows'>{rows}</div>"
+            );
+            return workspaces_panel_html(&body);
+        }
         PanelKind::Downloads => {
             let items = store
                 .lock()
@@ -369,6 +433,67 @@ button {{ background: transparent; border: none; color: #ddd; font-size: 16px; c
             rows
         },
     )
+}
+
+fn recreate_panel(
+    window: &tao::window::Window,
+    kind: PanelKind,
+    store: &Arc<Mutex<Store>>,
+    registry: &Arc<Mutex<Store>>,
+    proxy: &tao::event_loop::EventLoopProxy<UserEvent>,
+    vertical: bool,
+) -> Option<WebView> {
+    let html = panel_html(kind, store, registry);
+    let panel_proxy = proxy.clone();
+    let bounds = panel_bounds(window, vertical);
+    WebViewBuilder::new()
+        .with_html(html)
+        .with_bounds(bounds)
+        .with_ipc_handler(move |req| {
+            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(req.body()) {
+                let ev = match msg.get("type").and_then(|t| t.as_str()) {
+                    Some("close-panel") => Some(UserEvent::ClosePanel),
+                    Some("goto") => msg
+                        .get("url")
+                        .and_then(|u| u.as_str())
+                        .map(|u| UserEvent::Goto(u.to_string())),
+                    Some("set-search") => msg
+                        .get("value")
+                        .and_then(|v| v.as_str())
+                        .map(|v| UserEvent::SetSearch(v.to_string())),
+                    Some("set-profile") => msg
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|v| UserEvent::SetProfile(v.to_string())),
+                    Some("new-profile") => msg
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|v| UserEvent::NewProfile(v.to_string())),
+                    Some("set-split") => msg
+                        .get("value")
+                        .and_then(|v| v.as_str())
+                        .map(|v| UserEvent::SetSplitUrl(v.to_string())),
+                    Some("save-workspace") => msg
+                        .get("name")
+                        .and_then(|v| v.as_str())
+                        .map(|v| UserEvent::SaveWorkspace(v.to_string())),
+                    Some("open-workspace") => msg
+                        .get("id")
+                        .and_then(|v| v.as_i64())
+                        .map(UserEvent::OpenWorkspace),
+                    Some("delete-workspace") => msg
+                        .get("id")
+                        .and_then(|v| v.as_i64())
+                        .map(UserEvent::DeleteWorkspace),
+                    _ => None,
+                };
+                if let Some(ev) = ev {
+                    let _ = panel_proxy.send_event(ev);
+                }
+            }
+        })
+        .build_as_child(window)
+        .ok()
 }
 
 fn content_bounds(window: &tao::window::Window, vertical: bool, split: bool, pane: Pane) -> Rect {
@@ -546,6 +671,7 @@ fn main() {
                             "settings" => Some(PanelKind::Settings),
                             "profiles" => Some(PanelKind::Profiles),
                             "split" => Some(PanelKind::Split),
+                            "workspaces" => Some(PanelKind::Workspaces),
                             _ => None,
                         })
                         .map(UserEvent::OpenPanel),
@@ -779,6 +905,87 @@ fn main() {
                         panel = None;
                     }
                 }
+                UserEvent::SaveWorkspace(name) => {
+                    let trimmed = name.trim();
+                    if !trimmed.is_empty() && trimmed.len() <= 64 && trimmed != "" {
+                        let tab_data: Vec<(String, String)> = tabs
+                            .iter()
+                            .filter(|t| !t.incognito)
+                            .map(|t| (t.url.clone(), t.title.clone()))
+                            .collect();
+                        if !tab_data.is_empty() {
+                            if let Ok(store) = store.lock() {
+                                let _ = store.save_workspace(trimmed, &tab_data);
+                            }
+                        }
+                    }
+                    panel = None;
+                }
+                UserEvent::OpenWorkspace(id) => {
+                    let urls: Vec<String> = store
+                        .lock()
+                        .ok()
+                        .and_then(|s| s.load_workspace(id).ok())
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|(u, _)| u)
+                        .take(20)
+                        .collect();
+                    let mut first_new: Option<u64> = None;
+                    for url in urls {
+                        let nid = next_tab_id;
+                        next_tab_id += 1;
+                        if first_new.is_none() {
+                            first_new = Some(nid);
+                        }
+                        let view = spawn_tab(
+                            &window,
+                            nid,
+                            &url,
+                            &proxy,
+                            store.clone(),
+                            downloads_dir.clone(),
+                            false,
+                            split,
+                            vertical,
+                        );
+                        let _ = view.set_visible(false); // shown when switched to
+                        tabs.push(Tab {
+                            id: nid,
+                            title: "Loading…".into(),
+                            url,
+                            incognito: false,
+                            webview: view,
+                        });
+                    }
+                    if let Some(new_id) = first_new {
+                        active_tab = Some(new_id);
+                        for t in &tabs {
+                            let _ = t.webview.set_visible(t.id == new_id);
+                        }
+                    }
+                    panel = None;
+                    let url = tabs
+                        .iter()
+                        .find(|t| Some(t.id) == active_tab)
+                        .map(|t| t.url.clone())
+                        .unwrap_or_default();
+                    sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, &url);
+                }
+                UserEvent::DeleteWorkspace(id) => {
+                    if let Ok(store) = store.lock() {
+                        let _ = store.delete_workspace(id);
+                    }
+                    // Re-render open panel.
+                    panel = recreate_panel(
+                        &window,
+                        PanelKind::Workspaces,
+                        &store,
+                        &registry,
+                        &proxy,
+                        vertical,
+                    );
+                }
                 UserEvent::NewPrivateTab => {
                     let id = next_tab_id;
                     next_tab_id += 1;
@@ -940,45 +1147,7 @@ fn main() {
                 UserEvent::OpenPanel(kind) => {
                     // Replace any open panel.
                     panel = None;
-                    let html = panel_html(kind, &store, &registry);
-                    let panel_proxy = proxy.clone();
-                    let bounds = panel_bounds(&window, vertical);
-                    panel = WebViewBuilder::new()
-                        .with_html(html)
-                        .with_bounds(bounds)
-                        .with_ipc_handler(move |req| {
-                            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(req.body()) {
-                                let ev = match msg.get("type").and_then(|t| t.as_str()) {
-                                    Some("close-panel") => Some(UserEvent::ClosePanel),
-                                    Some("set-search") => msg
-                                        .get("value")
-                                        .and_then(|v| v.as_str())
-                                        .map(|v| UserEvent::SetSearch(v.to_string())),
-                                    Some("set-profile") => msg
-                                        .get("name")
-                                        .and_then(|v| v.as_str())
-                                        .map(|v| UserEvent::SetProfile(v.to_string())),
-                                    Some("set-split") => msg
-                                        .get("value")
-                                        .and_then(|v| v.as_str())
-                                        .map(|v| UserEvent::SetSplitUrl(v.to_string())),
-                                    Some("new-profile") => msg
-                                        .get("name")
-                                        .and_then(|v| v.as_str())
-                                        .map(|v| UserEvent::NewProfile(v.to_string())),
-                                    Some("goto") => msg
-                                        .get("url")
-                                        .and_then(|u| u.as_str())
-                                        .map(|u| UserEvent::Goto(u.to_string())),
-                                    _ => None,
-                                };
-                                if let Some(ev) = ev {
-                                    let _ = panel_proxy.send_event(ev);
-                                }
-                            }
-                        })
-                        .build_as_child(&window)
-                        .ok();
+                    panel = recreate_panel(&window, kind, &store, &registry, &proxy, vertical);
                 }
                 UserEvent::ClosePanel => {
                     panel = None;

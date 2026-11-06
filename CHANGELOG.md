@@ -3,6 +3,17 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.13.0] - 2026-11-06
+
+### Added
+- Workspaces: `varethic-storage` gains a `workspaces` + `workspace_tabs`
+  schema and `save_workspace` / `list_workspaces` / `load_workspace` /
+  `delete_workspace` (roundtrip test, 7 storage tests). Shell gains a \u29CA
+  toolbar button and panel: save the current (non-incognito) tab set under a
+  name (replaces on re-save), open a workspace into tabs (first tab activated),
+  delete (panel re-renders). Launch-tested.
+- Refactored panel IPC handling into a shared `recreate_panel` helper.
+
 ## [0.12.0] - 2026-11-06
 
 ### Added

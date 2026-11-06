@@ -1,5 +1,14 @@
 # Progress Log
 
+## 2026-11-06 — v0.13.0
+
+Done:
+- Workspaces: storage schema + CRUD with roundtrip test; shell panel (\u29CA) to
+  save/switch/delete named tab sets. Launch-tested. 47 workspace tests pass.
+- Note: a stale cargo incremental cache reported phantom E0599 against
+  varethic-storage methods; `cargo clean -p varethic-browser -p varethic-storage`
+  resolved it.
+
 ## 2026-11-06 — v0.12.0
 
 Done:
