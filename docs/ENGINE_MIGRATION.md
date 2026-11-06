@@ -13,7 +13,7 @@ not integrated · `Migrated` — integrated and verified
 
 | Chromium path | Component | Status | Rust crate | Notes |
 |---|---|---|---|---|
-| `//url` | URL parsing / GURL / omnibox | InProgress | `varethic-url` | Parse/validate/canonicalize + omnibox classifier, 9 unit tests. WHATWG parity + IDN pending. |
+| `//url` | URL parsing / GURL / omnibox | InProgress | `varethic-url` | Parse/validate/canonicalize + omnibox classifier + IDN/punycode + IPv6/IPv4/host-kind. Chromium study (2026-11-06): //url ships Rust FFI shims (`url.rs`, `gurl.rs`, `origin.rs`) wrapping C++ via `cxx` — upstream deliberately avoids a native Rust parser to prevent origin-comparison divergence. varethic-url is a native Rust implementation; divergence risk accepted and tracked. WHATWG origin calc pending. |
 | `//net` | Network stack | InProgress | `varethic-net` | HTTP/1.1 GET + redirects + in-memory cookie jar (RFC 6265 subset). Cookies/cache/HTTP2/full //net pending. |
 | `//services/network` | Network process | Legacy | — | Depends on //net work. |
 | `//content` | Navigation / lifecycle | Legacy | — | Bootstrapped by WebView2. |

@@ -3,6 +3,20 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.9.0] - 2026-11-06
+
+### Added
+- Vertical tabs layout: \u{2630} toolbar button toggles vertical mode — toolbar
+  shrinks to nav-only height, the horizontal tab strip hides, a 220px sidebar
+  child webview lists tabs (click to switch, \u{00D7} to close), and content
+  webviews shift right. Layout state is restored on resize. Launch-tested.
+- Chromium study findings written into docs (//url contains Rust FFI shims
+  `url.rs`/`gurl.rs`/`origin.rs` wrapping C++ via `cxx`; v8 is a git submodule
+  not fetched by the shallow clone).
+
+### Changed
+- Workspace version 0.9.0.
+
 ## [0.8.0] - 2026-11-06
 
 ### Added

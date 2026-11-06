@@ -14,6 +14,9 @@ code is NOT vendored into it).
   and hours; the disk now has the room but the build has not been run.
 - The GitHub mirror uses git submodules for some third_party trees and
   internal-only components (e.g. `chrome/browser/resources/preinstalled_web_apps/internal`);
-  those are absent here and are not needed for study.
+  those are absent here and are not needed for study. `//v8` is also a git
+  submodule and is NOT fetched (would be `git submodule update --init v8`;
+  ~2 GB additional). `//url`, `//net`, `//services`, `//storage`, `//sql`,
+  `//sandbox`, `//mojo`, `//gpu` are in-tree and present.
 - If the checkout is missing or stale, re-create with:
   `git clone --depth 1 https://github.com/chromium/chromium.git chromium`

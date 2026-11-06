@@ -1,5 +1,17 @@
 # Progress Log
 
+## 2026-11-06 — v0.9.0
+
+Done:
+- Vertical tabs mode: \u{2630} toggles 48px nav-only toolbar + 220px sidebar
+  child webview with clickable tab list; content shifts right; bounds update
+  on resize and toggle. Launch-tested.
+- Chromium //url studied: gurl.rs/origin.rs/url.rs are cxx FFI wrappers over
+  C++ GURL/Origin (not a native Rust parser). //v8 is a git submodule (not
+  fetched by shallow clone). Findings recorded in ENGINE_MIGRATION.md and
+  CHROMIUM_REFERENCE.md.
+- 35 url/net/storage/registry tests pass.
+
 ## 2026-11-06 — v0.8.0
 
 Done:

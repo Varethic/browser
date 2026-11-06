@@ -2,6 +2,48 @@
 //! Communicates with Rust over wry IPC (`window.ipc.postMessage`).
 
 pub const TOOLBAR_HEIGHT: u32 = 84; // tab strip 36 + nav bar 48
+pub const VERTICAL_TOOLBAR_HEIGHT: u32 = 48; // nav bar only
+pub const SIDEBAR_WIDTH: f64 = 220.0;
+
+/// Left sidebar with the vertical tab list, shown in vertical-tabs mode.
+pub const SIDEBAR_HTML: &str = r##"<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+  body { background: #14151a; color: #e6e6e6; overflow-y: auto; user-select: none; }
+  #list { display: flex; flex-direction: column; padding: 6px; gap: 2px; }
+  .tab { display: flex; align-items: center; gap: 6px; height: 34px; padding: 0 8px; border-radius: 6px; font-size: 12px; cursor: default; }
+  .tab.active { background: #2e313a; outline: 1px solid #4f8cff; }
+  .tab:hover { background: #23252d; }
+  .tab .title { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab .close { border: none; background: transparent; color: #aaa; cursor: pointer; font-size: 13px; border-radius: 4px; padding: 0 4px; }
+  .tab .close:hover { background: #454855; color: #fff; }
+</style>
+</head>
+<body>
+<div id="list"></div>
+<script>
+  const send = (obj) => window.ipc.postMessage(JSON.stringify(obj));
+  function renderTabs(state) {
+    const list = document.getElementById('list');
+    list.innerHTML = '';
+    for (const t of state.tabs) {
+      const el = document.createElement('div');
+      el.className = 'tab' + (t.id === state.active ? ' active' : '');
+      el.innerHTML = '<span class="title"></span><button class="close">&times;</button>';
+      el.querySelector('.title').textContent = t.title || 'New Tab';
+      el.onclick = () => send({type: 'switch-tab', id: t.id});
+      el.querySelector('.close').onclick = (e) => { e.stopPropagation(); send({type: 'close-tab', id: t.id}); };
+      list.appendChild(el);
+    }
+  }
+  window.__renderTabs = renderTabs;
+</script>
+</body>
+</html>"##;
 
 pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
 <html>
@@ -40,6 +82,7 @@ pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
   <button class="navbtn" id="bookmarks" title="Bookmarks">&#9733;</button>
   <button class="navbtn" id="downloads" title="Downloads">&#11015;</button>
   <button class="navbtn" id="private" title="New private tab">&#128377;</button>
+  <button class="navbtn" id="vtabs" title="Toggle vertical tabs">&#9776;</button>
   <button class="navbtn" id="profiles" title="Profiles">&#128100;</button>
   <button class="navbtn" id="settings" title="Settings">&#9881;</button>
   <button class="navbtn" id="devtools" title="DevTools">&lt;/&gt;</button>
@@ -57,6 +100,7 @@ pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
   document.getElementById('downloads').onclick = () => send({type: 'open-panel', kind: 'downloads'});
   document.getElementById('private').onclick = () => send({type: 'new-private-tab'});
   document.getElementById('settings').onclick = () => send({type: 'open-panel', kind: 'settings'});
+  document.getElementById('vtabs').onclick = () => send({type: 'toggle-vertical'});
   document.getElementById('profiles').onclick = () => send({type: 'open-panel', kind: 'profiles'});
   const omni = document.getElementById('omnibox');
   omni.addEventListener('keydown', e => {
@@ -80,6 +124,7 @@ pub const TOOLBAR_HTML: &str = r##"<!DOCTYPE html>
     strip.appendChild(add);
     if (document.activeElement !== omni) omni.value = state.omnibox || '';
   }
+  window.__setVertical = (v) => { document.getElementById('tabstrip').style.display = v ? 'none' : 'flex'; };
   window.__renderTabs = renderTabs;
 </script>
 </body>

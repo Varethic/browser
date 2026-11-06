@@ -31,6 +31,7 @@ enum UserEvent {
     OpenPanel(PanelKind),
     ClosePanel,
     Goto(String),
+    ToggleVerticalTabs,
     SetSearch(String),
     NewPrivateTab,
     SetProfile(String),
@@ -79,21 +80,34 @@ fn current_search_template(store: &Arc<Mutex<Store>>) -> String {
         .unwrap_or_else(|| DEFAULT_SEARCH_URL.to_string())
 }
 
-fn panel_bounds(window: &tao::window::Window) -> Rect {
+fn toolbar_h(vertical: bool) -> f64 {
+    if vertical {
+        toolbar::VERTICAL_TOOLBAR_HEIGHT as f64
+    } else {
+        toolbar::TOOLBAR_HEIGHT as f64
+    }
+}
+
+fn sidebar_bounds(window: &tao::window::Window, vertical: bool) -> Rect {
+    let scale = window.scale_factor();
+    let size = window.inner_size();
+    Rect {
+        position: LogicalPosition::new(0.0, toolbar_h(vertical)).into(),
+        size: LogicalSize::new(
+            toolbar::SIDEBAR_WIDTH,
+            (size.height as f64 / scale) - toolbar_h(vertical),
+        )
+        .into(),
+    }
+}
+
+fn panel_bounds(window: &tao::window::Window, vertical: bool) -> Rect {
     let scale = window.scale_factor();
     let size = window.inner_size();
     let w = 440.0_f64;
     Rect {
-        position: LogicalPosition::new(
-            (size.width as f64 / scale) - w,
-            toolbar::TOOLBAR_HEIGHT as f64,
-        )
-        .into(),
-        size: LogicalSize::new(
-            w,
-            (size.height as f64 / scale) - toolbar::TOOLBAR_HEIGHT as f64,
-        )
-        .into(),
+        position: LogicalPosition::new((size.width as f64 / scale) - w, toolbar_h(vertical)).into(),
+        size: LogicalSize::new(w, (size.height as f64 / scale) - toolbar_h(vertical)).into(),
     }
 }
 
@@ -303,29 +317,55 @@ button {{ background: transparent; border: none; color: #ddd; font-size: 16px; c
     )
 }
 
-fn content_bounds(window: &tao::window::Window) -> Rect {
+fn content_bounds(window: &tao::window::Window, vertical: bool) -> Rect {
     let scale = window.scale_factor();
     let size = window.inner_size();
+    let x = if vertical {
+        toolbar::SIDEBAR_WIDTH
+    } else {
+        0.0
+    };
     Rect {
-        position: LogicalPosition::new(0.0, toolbar::TOOLBAR_HEIGHT as f64).into(),
+        position: LogicalPosition::new(x, toolbar_h(vertical)).into(),
         size: LogicalSize::new(
-            size.width as f64 / scale,
-            (size.height as f64 / scale) - toolbar::TOOLBAR_HEIGHT as f64,
+            (size.width as f64 / scale) - x,
+            (size.height as f64 / scale) - toolbar_h(vertical),
         )
         .into(),
     }
 }
 
-fn full_width_toolbar_bounds(window: &tao::window::Window) -> Rect {
+fn full_width_toolbar_bounds(window: &tao::window::Window, vertical: bool) -> Rect {
     let scale = window.scale_factor();
     let size = window.inner_size();
     Rect {
         position: LogicalPosition::new(0.0, 0.0).into(),
-        size: LogicalSize::new(size.width as f64 / scale, toolbar::TOOLBAR_HEIGHT as f64).into(),
+        size: LogicalSize::new(size.width as f64 / scale, toolbar_h(vertical)).into(),
     }
 }
 
-fn sync_toolbar(toolbar_view: &WebView, tabs: &[Tab], active: Option<u64>, omnibox: &str) {
+fn sync_sidebar(sidebar: &Option<WebView>, tabs: &[Tab], active: Option<u64>) {
+    if let Some(sb) = sidebar {
+        let state = serde_json::json!({
+            "tabs": tabs.iter().map(|t| serde_json::json!({
+                "id": t.id,
+                "title": t.title,
+            })).collect::<Vec<_>>(),
+            "active": active,
+        });
+        let js = format!("window.__renderTabs({});", state.to_string());
+        let _ = sb.evaluate_script(&js);
+    }
+}
+
+fn sync_toolbar(
+    toolbar_view: &WebView,
+    sidebar: &Option<WebView>,
+    tabs: &[Tab],
+    active: Option<u64>,
+    omnibox: &str,
+) {
+    sync_sidebar(sidebar, tabs, active);
     let state = serde_json::json!({
         "tabs": tabs.iter().map(|t| serde_json::json!({
             "id": t.id,
@@ -391,11 +431,12 @@ fn main() {
         profile_base.join("profiles").join(name).join("varethic.db")
     };
 
-    // Toolbar (browser chrome) child webview.
+    let mut vertical = false; // toggled by the \u{2630} toolbar button
+                              // Toolbar (browser chrome) child webview.
     let ipc_proxy = proxy.clone();
     let toolbar_view = WebViewBuilder::new()
         .with_html(toolbar::TOOLBAR_HTML)
-        .with_bounds(full_width_toolbar_bounds(&window))
+        .with_bounds(full_width_toolbar_bounds(&window, vertical))
         .with_ipc_handler(move |req| {
             if let Ok(msg) = serde_json::from_str::<serde_json::Value>(req.body()) {
                 let ev = match msg.get("type").and_then(|t| t.as_str()) {
@@ -405,6 +446,7 @@ fn main() {
                         .map(|s| UserEvent::Navigate(s.to_string())),
                     Some("new-tab") => Some(UserEvent::NewTab),
                     Some("new-private-tab") => Some(UserEvent::NewPrivateTab),
+                    Some("toggle-vertical") => Some(UserEvent::ToggleVerticalTabs),
                     Some("close-tab") => msg
                         .get("id")
                         .and_then(|i| i.as_u64())
@@ -443,6 +485,7 @@ fn main() {
 
     let mut tabs: Vec<Tab> = Vec::new();
     let mut panel: Option<WebView> = None;
+    let mut sidebar: Option<WebView> = None;
     let mut next_tab_id: u64 = 1;
 
     // Helper to spawn a new tab webview.
@@ -452,7 +495,8 @@ fn main() {
                      proxy: &tao::event_loop::EventLoopProxy<UserEvent>,
                      store: Arc<Mutex<Store>>,
                      downloads_dir: PathBuf,
-                     incognito: bool|
+                     incognito: bool,
+                     vertical: bool|
      -> WebView {
         let title_proxy = proxy.clone();
         let load_proxy = proxy.clone();
@@ -460,7 +504,7 @@ fn main() {
         WebViewBuilder::new()
             .with_url(url)
             .with_incognito(incognito)
-            .with_bounds(content_bounds(window))
+            .with_bounds(content_bounds(window, vertical))
             .with_document_title_changed_handler(move |title| {
                 let _ = title_proxy.send_event(UserEvent::TitleChanged(tab_id, title));
             })
@@ -496,6 +540,7 @@ fn main() {
         store.clone(),
         downloads_dir.clone(),
         false,
+        vertical,
     );
     tabs.push(Tab {
         id: next_tab_id,
@@ -506,7 +551,7 @@ fn main() {
     });
     let mut active_tab: Option<u64> = Some(next_tab_id);
     next_tab_id += 1;
-    sync_toolbar(&toolbar_view, &tabs, active_tab, NEW_TAB_URL);
+    sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, NEW_TAB_URL);
 
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -514,13 +559,16 @@ fn main() {
             Event::WindowEvent { event, .. } => match event {
                 WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
                 WindowEvent::Resized(_) => {
-                    let _ = toolbar_view.set_bounds(full_width_toolbar_bounds(&window));
-                    let b = content_bounds(&window);
+                    let _ = toolbar_view.set_bounds(full_width_toolbar_bounds(&window, vertical));
+                    let b = content_bounds(&window, vertical);
                     for t in &tabs {
                         let _ = t.webview.set_bounds(b);
                     }
                     if let Some(p) = &panel {
-                        let _ = p.set_bounds(panel_bounds(&window));
+                        let _ = p.set_bounds(panel_bounds(&window, vertical));
+                    }
+                    if let Some(sb) = &sidebar {
+                        let _ = sb.set_bounds(sidebar_bounds(&window, vertical));
                     }
                 }
                 _ => {}
@@ -537,6 +585,7 @@ fn main() {
                         store.clone(),
                         downloads_dir.clone(),
                         false,
+                        vertical,
                     );
                     // Hide previous active tab.
                     if let Some(active) = active_tab {
@@ -555,7 +604,56 @@ fn main() {
                     if let Some(t) = tabs.last() {
                         let _ = t.webview.set_visible(true);
                     }
-                    sync_toolbar(&toolbar_view, &tabs, active_tab, NEW_TAB_URL);
+                    sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, NEW_TAB_URL);
+                }
+                UserEvent::ToggleVerticalTabs => {
+                    vertical = !vertical;
+                    let _ = toolbar_view.set_bounds(full_width_toolbar_bounds(&window, vertical));
+                    let _ = toolbar_view
+                        .evaluate_script(&format!("window.__setVertical({});", vertical));
+                    let b = content_bounds(&window, vertical);
+                    for t in &tabs {
+                        let _ = t.webview.set_bounds(b);
+                    }
+                    if let Some(p) = &panel {
+                        let _ = p.set_bounds(panel_bounds(&window, vertical));
+                    }
+                    sidebar = if vertical {
+                        let sb_proxy = proxy.clone();
+                        WebViewBuilder::new()
+                            .with_html(toolbar::SIDEBAR_HTML)
+                            .with_bounds(sidebar_bounds(&window, vertical))
+                            .with_ipc_handler(move |req| {
+                                if let Ok(msg) =
+                                    serde_json::from_str::<serde_json::Value>(req.body())
+                                {
+                                    let ev = match msg.get("type").and_then(|t| t.as_str()) {
+                                        Some("switch-tab") => msg
+                                            .get("id")
+                                            .and_then(|i| i.as_u64())
+                                            .map(UserEvent::SwitchTab),
+                                        Some("close-tab") => msg
+                                            .get("id")
+                                            .and_then(|i| i.as_u64())
+                                            .map(UserEvent::CloseTab),
+                                        _ => None,
+                                    };
+                                    if let Some(ev) = ev {
+                                        let _ = sb_proxy.send_event(ev);
+                                    }
+                                }
+                            })
+                            .build_as_child(&window)
+                            .ok()
+                    } else {
+                        None
+                    };
+                    let url = tabs
+                        .iter()
+                        .find(|t| Some(t.id) == active_tab)
+                        .map(|t| t.url.clone())
+                        .unwrap_or_default();
+                    sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, &url);
                 }
                 UserEvent::NewPrivateTab => {
                     let id = next_tab_id;
@@ -568,6 +666,7 @@ fn main() {
                         store.clone(),
                         downloads_dir.clone(),
                         true,
+                        vertical,
                     );
                     if let Some(active) = active_tab {
                         if let Some(t) = tabs.iter().find(|t| t.id == active) {
@@ -585,7 +684,7 @@ fn main() {
                     if let Some(t) = tabs.last() {
                         let _ = t.webview.set_visible(true);
                     }
-                    sync_toolbar(&toolbar_view, &tabs, active_tab, NEW_TAB_URL);
+                    sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, NEW_TAB_URL);
                 }
                 UserEvent::CloseTab(id) => {
                     if let Some(pos) = tabs.iter().position(|t| t.id == id) {
@@ -603,6 +702,7 @@ fn main() {
                                 store.clone(),
                                 downloads_dir.clone(),
                                 false,
+                                vertical,
                             );
                             tabs.push(Tab {
                                 id: nid,
@@ -624,7 +724,7 @@ fn main() {
                             .find(|t| Some(t.id) == active_tab)
                             .map(|t| t.url.clone())
                             .unwrap_or_default();
-                        sync_toolbar(&toolbar_view, &tabs, active_tab, &url);
+                        sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, &url);
                     }
                 }
                 UserEvent::SwitchTab(id) => {
@@ -637,7 +737,7 @@ fn main() {
                         .find(|t| t.id == id)
                         .map(|t| t.url.clone())
                         .unwrap_or_default();
-                    sync_toolbar(&toolbar_view, &tabs, active_tab, &url);
+                    sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, &url);
                 }
                 UserEvent::Navigate(input) => {
                     let template = current_search_template(&store);
@@ -648,7 +748,7 @@ fn main() {
                             t.url = url.clone();
                         }
                     }
-                    sync_toolbar(&toolbar_view, &tabs, active_tab, &url);
+                    sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, &url);
                 }
                 UserEvent::Back => {
                     if let Some(t) = tabs.iter().find(|t| Some(t.id) == active_tab) {
@@ -670,7 +770,7 @@ fn main() {
                         let _ = t.webview.load_url(HOME_URL);
                         t.url = HOME_URL.into();
                     }
-                    sync_toolbar(&toolbar_view, &tabs, active_tab, HOME_URL);
+                    sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, HOME_URL);
                 }
                 UserEvent::Devtools => {
                     if let Some(t) = tabs.iter().find(|t| Some(t.id) == active_tab) {
@@ -716,7 +816,7 @@ fn main() {
                     panel = None;
                     let html = panel_html(kind, &store, &registry);
                     let panel_proxy = proxy.clone();
-                    let bounds = panel_bounds(&window);
+                    let bounds = panel_bounds(&window, vertical);
                     panel = WebViewBuilder::new()
                         .with_html(html)
                         .with_bounds(bounds)
@@ -759,7 +859,7 @@ fn main() {
                         let _ = t.webview.load_url(&url);
                         t.url = url.clone();
                     }
-                    sync_toolbar(&toolbar_view, &tabs, active_tab, &url);
+                    sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, &url);
                 }
                 UserEvent::TitleChanged(id, title) => {
                     if let Some(t) = tabs.iter_mut().find(|t| t.id == id) {
@@ -774,7 +874,7 @@ fn main() {
                         .find(|t| Some(t.id) == active_tab)
                         .map(|t| t.url.clone())
                         .unwrap_or_default();
-                    sync_toolbar(&toolbar_view, &tabs, active_tab, &url);
+                    sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, &url);
                 }
                 UserEvent::PageLoaded(id, url) => {
                     let (title, incognito) = if let Some(t) = tabs.iter_mut().find(|t| t.id == id) {
@@ -793,7 +893,7 @@ fn main() {
                         .find(|t| Some(t.id) == active_tab)
                         .map(|t| t.url.clone())
                         .unwrap_or_default();
-                    sync_toolbar(&toolbar_view, &tabs, active_tab, &url);
+                    sync_toolbar(&toolbar_view, &sidebar, &tabs, active_tab, &url);
                 }
             },
             _ => {}
