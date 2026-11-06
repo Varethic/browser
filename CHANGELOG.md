@@ -3,6 +3,14 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.17.0] - 2026-11-06
+
+### Added
+- UI smoke harness `tests/ui_smoke.ps1`: launches the shell, asserts the main
+  window appears titled `Varethic` with a live `MainWindowHandle`, then closes
+  via `WM_CLOSE` and requires clean exit 0. Passing run verified
+  (window hwnd 1312800, exit code 0). Wired into docs/TESTING.md procedure.
+
 ## [0.16.0] - 2026-11-06
 
 ### Added

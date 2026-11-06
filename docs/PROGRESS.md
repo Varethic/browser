@@ -1,5 +1,12 @@
 # Progress Log
 
+## 2026-11-06 — v0.17.0
+
+Done:
+- tests/ui_smoke.ps1: scripted UI smoke harness (window appears titled
+  'Varethic', live handle, WM_CLOSE clean exit). Verified this session:
+  PASS with hwnd 1312800, exit code 0. Docs/TESTING.md updated.
+
 ## 2026-11-06 — v0.16.0
 
 Done:

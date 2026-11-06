@@ -16,6 +16,17 @@ cargo test --workspace
 - Browser binary: built debug and launch-tested; window stays alive,
   `%LOCALAPPDATA%\Varethic\varethic.db` is created on first run.
 
+## Scripted smoke test (v0.17.0+)
+
+```powershell
+cargo build -p varethic-browser
+powershell -ExecutionPolicy Bypass -File tests\ui_smoke.ps1
+# Expected: "PASS: window 'Varethic' appeared ..." and exit code 0
+```
+
+Launches the browser, asserts title and window handle, closes via WM_CLOSE,
+requires clean exit. Run it after every shell change.
+
 ## Manual smoke checklist
 
 1. Launch `target\debug\varethic-browser.exe`.
