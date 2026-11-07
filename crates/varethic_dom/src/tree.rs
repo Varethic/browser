@@ -127,6 +127,43 @@ impl Dom {
         out
     }
 
+    /// Depth-first list of all element node ids.
+    pub fn all_elements(&self) -> Vec<usize> {
+        let mut out = Vec::new();
+        for &c in &self.document_children {
+            self.collect_elements(c, &mut out);
+        }
+        out
+    }
+
+    fn collect_elements(&self, id: usize, out: &mut Vec<usize>) {
+        if let Node::Element { children, .. } = &self.nodes[id] {
+            out.push(id);
+            for &c in children {
+                self.collect_elements(c, out);
+            }
+        }
+    }
+
+    /// The tag name of an element node, if `id` is an element.
+    pub fn tag(&self, id: usize) -> Option<&str> {
+        match &self.nodes[id] {
+            Node::Element { name, .. } => Some(name),
+            _ => None,
+        }
+    }
+
+    /// The value of an attribute (case-insensitive name) on an element.
+    pub fn attr(&self, id: usize, name: &str) -> Option<&str> {
+        match &self.nodes[id] {
+            Node::Element { attrs, .. } => attrs
+                .iter()
+                .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                .map(|(_, v)| v.as_str()),
+            _ => None,
+        }
+    }
+
     fn collect_names(&self, id: usize, out: &mut Vec<String>) {
         if let Node::Element { name, children, .. } = &self.nodes[id] {
             out.push(name.clone());

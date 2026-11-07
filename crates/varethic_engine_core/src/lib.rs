@@ -47,6 +47,13 @@ pub const COMPONENT_REGISTRY: &[ComponentEntry] = &[
         notes: "Safe-Rust WHATWG-subset tokenizer (tags/attributes/comments/doctype/RAWTEXT/RCDATA/char refs) + simplified tree construction (void elements, implied end tags li/p/dt/dd/option). No insertion-mode machinery, adoption agency, foster parenting, or html/head/body synthesis yet. Parses fetched HTML in the shell's Fetch panel; not used for rendering.",
     },
     ComponentEntry {
+        chromium_path: "//third_party/blink/renderer/core/css",
+        name: "CSS tokenizer + selector/declaration parser",
+        rust_crate: Some("varethic-css"),
+        status: MigrationStatus::InProgress,
+        notes: "Safe-Rust CSS Syntax Level 3 subset tokenizer + selector/declaration parser. No cascade/specificity/computed-style/layout/rendering yet; not used for rendering.",
+    },
+    ComponentEntry {
         chromium_path: "//content",
         name: "Content / navigation",
         rust_crate: None,

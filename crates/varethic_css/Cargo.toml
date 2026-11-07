@@ -1,0 +1,8 @@
+[package]
+name = "varethic-css"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Varethic CSS: safe-Rust CSS Syntax Level 3 tokenizer + selector/declaration parser (early successor to Blink's CSS parser)"
+
+[dependencies]

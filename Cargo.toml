@@ -7,10 +7,11 @@ members = [
     "crates/varethic_net",
     "crates/varethic_storage",
     "crates/varethic_dom",
+    "crates/varethic_css",
 ]
 
 [workspace.package]
-version = "0.22.0"
+version = "0.23.0"
 edition = "2021"
 license = "BSD-3-Clause"
 repository = "https://github.com/Varethic/browser"

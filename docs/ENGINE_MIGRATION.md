@@ -21,7 +21,8 @@ not integrated · `Migrated` — integrated and verified
 | `//storage` | Browser-data SQLite | InProgress | `varethic-storage` | History/bookmarks/downloads records; wired into shell (auto-history, bookmark button, download recording). |
 | `//sql` | `//sql` access layer | InProgress | `varethic-storage` | Via bundled rusqlite; also backs disk HTTP cache table (v0.19.0). Sync/FTS pending. |
 | blink `//third_party/blink/renderer/core/html/parser` | HTML tokenizer + tree construction | InProgress | `varethic-dom` | Safe-Rust WHATWG-subset tokenizer + simplified tree construction (void elements, implied end tags, char refs, RAWTEXT/RCDATA). Parses fetched HTML in the Fetch panel; not used for rendering. No insertion-mode machinery / adoption agency / foster parenting / html-body synthesis. |
-| blink `//third_party/blink` (render/CSS) | CSS parsing, layout, paint | Legacy | — | Long-term; no start. |
+| blink `//third_party/blink/renderer/core/css` | CSS tokenizer + selector/declaration parser | InProgress | `varethic-css` | Safe-Rust CSS Syntax Level 3 subset. No cascade/specificity/computed-style/layout/rendering. |
+| blink `//third_party/blink` (render) | Layout, paint | Legacy | — | Long-term; no start. |
 | V8 `//v8` | JavaScript | Legacy | — | Long-term; no start. |
 | `//gpu` | GPU process | Legacy | — | Via WebView2/D3D11 today. |
 | `//sandbox` | Sandbox | Legacy | — | WebView2 inherits Chromium sandbox. |

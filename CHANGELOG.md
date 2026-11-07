@@ -3,6 +3,24 @@
 All notable changes to this project are documented here. Version format:
 `MAJOR.MINOR.PATCH`.
 
+## [0.23.0] - 2026-11-06
+
+### Added
+- **`varethic-css`**: a safe-Rust CSS Syntax Level 3 tokenizer + selector /
+  declaration parser, early successor to Blink's CSS parser
+  (`//third_party/blink/renderer/core/css`). Covers idents, functions,
+  at-keywords, hashes, strings, URLs, numbers, percentages, dimensions,
+  delimiters, comments, qualified rules, declaration lists, selector parts
+  (type/universal/id/class/attribute/pseudo + combinators), and `!important`.
+  14 unit tests. Registered in `COMPONENT_REGISTRY` as `InProgress`.
+- `varethic-dom`: DOM helpers for CSS extraction (`all_elements`, `tag`,
+  `attr`) so later milestones can parse `<style>`/inline `style=` from fetched
+  HTML.
+
+### Notes
+- `varethic-css` does not do cascade, specificity, computed style, layout or
+  rendering yet. Nothing is marked `Migrated`.
+
 ## [0.22.0] - 2026-11-06
 
 ### Added

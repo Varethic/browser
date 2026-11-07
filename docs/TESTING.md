@@ -1,12 +1,17 @@
 # Testing
 
-## Current (v0.22.0)
+## Current (v0.23.0)
 
 ```powershell
 cargo test --workspace
 ```
 
-90 tests, all passing (1 `#[ignore]`d live-network test excluded):
+104 tests, all passing (1 `#[ignore]`d live-network test excluded):
+
+- `varethic-css`: 14 tests — CSS Syntax Level 3 tokenizer (idents, hashes,
+  strings, URLs, numbers, dimensions, percentages, comments, at-keywords) and
+  selector/declaration parsing (qualified rules, declarations, `!important`,
+  at-rules, malformed-declaration skipping).
 
 - `varethic-url`: 19 tests — parsing/canonicalization, ports, userinfo,
   percent-encoding, IDN/UTS #46, WHATWG origins, path dot-segment
@@ -32,7 +37,7 @@ cargo test --workspace
 - Browser binary: built and launch-tested (window stays alive; DB created on
   first run); `tests/ui_smoke.ps1` passes.
 
-Total: **90 tests, all passing** (1 `#[ignore]`d live-network test excluded).
+Total: **104 tests, all passing** (1 `#[ignore]`d live-network test excluded).
 
 ## Experimental (not asserted)
 

@@ -1,5 +1,17 @@
 # Progress Log
 
+## 2026-11-06 — v0.23.0
+
+Done:
+- New native engine crate `varethic-css`: safe-Rust CSS tokenizer +
+  selector/declaration parser (14 tests). Registered in COMPONENT_REGISTRY as
+  InProgress (`//third_party/blink/renderer/core/css`).
+- `varethic-dom`: DOM helpers (`all_elements`, `tag`, `attr`) for later CSS
+  extraction from `<style>`/inline styles.
+- Fixed CSS tokenizer quoted-URL parsing and at-rule prelude trimming caught
+  by the first test run. 104 workspace tests pass.
+- Still no CSS cascade/layout/rendering; nothing marked Migrated.
+
 ## 2026-11-06 — v0.22.0
 
 Done:

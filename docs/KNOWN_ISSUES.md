@@ -1,14 +1,15 @@
 # Known Issues
 
-Last reviewed: v0.20.0 (2026-11-06).
+Last reviewed: v0.23.0 (2026-11-06).
 
 - **Not production-ready.** Do not ship. This is an incremental migration
   project, not a finished browser.
 - **Rendering is WebView2, not a native Rust engine.** All HTML/CSS/DOM/JS
   execution goes through Chromium inside WebView2 (the Microsoft Edge runtime).
-  No Rust implementation of CSS, layout, paint, V8, GPU or the sandbox exists
-  yet. A native **HTML tokenizer + tree constructor** exists (`varethic-dom`)
-  but parses/summarises only — it does not render.
+  No Rust implementation of cascade/computed style, layout, paint, V8, GPU or
+  the sandbox exists yet. A native **HTML tokenizer + tree constructor**
+  (`varethic-dom`) and a native **CSS tokenizer + selector/declaration parser**
+  (`varethic-css`) exist, but they only parse/summarise — they do not render.
 - **`varethic-dom` is a partial HTML5 parser.** It has no insertion-mode
   machinery, no adoption agency algorithm, no foster parenting, no
   `html`/`head`/`body` synthesis, no foreign content (SVG/MathML), and its
